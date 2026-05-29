@@ -1,0 +1,29 @@
+# --- Справочные данные организатора — НЕ публиковать ---
+iGaming_chat/
+
+# --- Секреты ---
+.env
+.env.*
+!.env.example
+
+# --- Локальный тулинг ---
+.claude/
+.claude-last-session
+
+# --- Node / фронтенд ---
+node_modules/
+.next/
+dist/
+build/
+.vercel/
+*.local
+
+# --- Foundry ---
+cache/
+out/
+broadcast/*/31337/
+broadcast/**/dry-run/
+
+# --- ОС / редактор ---
+.DS_Store
+*.log
