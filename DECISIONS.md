@@ -11,6 +11,7 @@
 - Деньги: **нативный тестовый ETH + кран в контракте** — нет деплоя токена, нет approve, простейшая петля deposit/withdraw.
 - Случайность: **Pyth Entropy** — проверяемая on-chain, дешевле/быстрее Chainlink VRF, задеплоена на Base Sepolia, есть готовый пример под Foundry. Откат: commit-reveal.
 - Инструменты: **Foundry** (контракт: write/test/deploy/verify) + **thirdweb v5** (фронт, кошелёк, AA, sponsorGas).
+- Сборка контракта: примитивы из **OpenZeppelin** (`ReentrancyGuard`, `Ownable`), интеграцию Pyth — из официального `coin_flip`-примера; логику Limbo (выплата, проверка, edge, банк/кран) **пишем сами**. Целый казино-контракт не форкаем — унаследованные баги с деньгами + теряется понимание для Loom/«hardest unknown».
 - Онбординг: thirdweb account abstraction + безгазовый вход — **стретч**; MetaMask — гарантированная страховка.
 
 ## Игра
