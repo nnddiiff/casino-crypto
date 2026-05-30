@@ -18,3 +18,10 @@ export const casino = getContract({
   chain,
   address,
 });
+
+/**
+ * Блок деплоя контракта — нижняя граница поиска событий по seq в верификаторе честности.
+ * Публичный RPC ограничивает eth_getLogs окном 1000 блоков, поэтому поиск идёт окнами и
+ * не уходит ниже этого блока. Значение сверено on-chain (getcontractcreation).
+ */
+export const CASINO_DEPLOY_BLOCK = 42186691n;

@@ -7,11 +7,11 @@ import { toast } from "sonner";
 import { chain } from "@/lib/chain";
 import { client } from "@/lib/client";
 import { casino } from "@/lib/contract";
-import { betPlacedEvent, type SettledArgs, waitForSettlement } from "@/lib/events";
+import { betPlacedEvent, type SettledResult, waitForSettlement } from "@/lib/events";
 import { errMessage } from "@/lib/format";
 
 export type BetPhase = "idle" | "submitting" | "waiting" | "result";
-export type BetResult = (SettledArgs & { txHash: string }) | null;
+export type BetResult = (SettledResult & { txHash: string }) | null;
 
 /**
  * Машина состояний асинхронной ставки Limbo:

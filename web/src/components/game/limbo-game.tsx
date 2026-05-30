@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useActiveAccount } from "thirdweb/react";
+import { useLastBet } from "@/components/last-bet-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,9 +25,17 @@ export function LimboGame() {
   const address = account?.address;
   const reads = useCasinoReads(address);
   const { phase, result, place } = usePlaceBet(() => reads.refetchAll());
+  const { setLastBet } = useLastBet();
 
   const [target, setTarget] = useState("2.00");
   const [stake, setStake] = useState("0.001");
+
+  // Разыгранную ставку отдаём верификатору: seq + точный блок колбэка (проверка без поиска).
+  useEffect(() => {
+    if (phase === "result" && result) {
+      setLastBet({ seq: result.sequenceNumber, block: result.settledBlock });
+    }
+  }, [phase, result, setLastBet]);
 
   if (!address) return null;
 

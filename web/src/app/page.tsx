@@ -5,12 +5,14 @@ import { AuditDashboard } from "@/components/audit-dashboard";
 import { FundsPanel } from "@/components/funds-panel";
 import { LimboGame } from "@/components/game/limbo-game";
 import { Header } from "@/components/header";
+import { LastBetProvider } from "@/components/last-bet-context";
+import { VerifyPanel } from "@/components/verify/verify-panel";
 
 export default function Home() {
   const account = useActiveAccount();
 
   return (
-    <>
+    <LastBetProvider>
       <Header />
       <main className="flex flex-1 flex-col items-center gap-10 px-4 py-10">
         {account ? (
@@ -34,7 +36,8 @@ export default function Home() {
         )}
 
         <AuditDashboard />
+        <VerifyPanel />
       </main>
-    </>
+    </LastBetProvider>
   );
 }
