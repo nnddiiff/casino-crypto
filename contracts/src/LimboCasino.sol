@@ -14,7 +14,8 @@ import { IEntropyConsumer } from "@pythnetwork/entropy-sdk-solidity/IEntropyCons
 ///
 /// @dev Инварианты, которые держит контракт:
 ///      1. Раздельный учёт: casinoBank (выплаты) != faucetPool (кран) != balances (игроки) != locked (резерв ставок).
-///         address(this).balance == casinoBank + faucetPool + locked + sum(balances).
+///         address(this).balance >= casinoBank + faucetPool + locked + sum(balances)
+///         (строгое равенство во всех штатных путях; >= лишь из-за возможного force-feed ETH извне).
 ///      2. Под каждую неразыгранную ставку резервируется полная выплата в `locked` — банк не разорить.
 ///      3. Деньги отдаются только через pull-over-push (withdraw/claim); в колбэке Pyth — никаких внешних переводов.
 ///      4. checks-effects-interactions + nonReentrant на всех функциях, отдающих ETH.
@@ -28,6 +29,10 @@ contract LimboCasino is Ownable, ReentrancyGuard, IEntropyConsumer {
     uint256 public constant MIN_MULTIPLIER = 1_010_000; // нижняя граница цели 1.01x (~98% шанс)
     uint256 public constant MIN_BET = 1e13; // минимальная ставка 0.00001 ETH
     uint256 public constant FAUCET_AMOUNT = 5e15; // выдача крана 0.005 ETH за claim
+
+    // --- Параметры запроса случайности ---
+    uint32 public constant CALLBACK_GAS_LIMIT = 200_000; // явный лимит газа колбэка Pyth (с запасом под storage-записи)
+    uint256 public constant STUCK_TIMEOUT = 1 hours; // после этого неразыгранную ставку можно вернуть (страховка от сбоя колбэка)
 
     // --- Источник проверяемой случайности ---
     IEntropyV2 private immutable _entropy;
@@ -52,6 +57,7 @@ contract LimboCasino is Ownable, ReentrancyGuard, IEntropyConsumer {
         uint256 target;
         uint256 potentialPayout;
         bool settled;
+        uint64 requestedAt; // время запроса — для возврата зависшей ставки по таймауту
     }
 
     mapping(uint64 => Bet) public bets; // sequenceNumber Pyth -> ставка
@@ -74,6 +80,7 @@ contract LimboCasino is Ownable, ReentrancyGuard, IEntropyConsumer {
         bool won,
         uint256 payout
     );
+    event BetRefunded(uint64 indexed sequenceNumber, address indexed player, uint256 stake);
 
     // --- Ошибки ---
     error ZeroAmount();
@@ -86,6 +93,7 @@ contract LimboCasino is Ownable, ReentrancyGuard, IEntropyConsumer {
     error FaucetEmpty();
     error TransferFailed();
     error UnknownOrSettledBet();
+    error BetNotStuck();
 
     constructor(address entropyContract, address initialOwner) Ownable(initialOwner) {
         _entropy = IEntropyV2(entropyContract);
@@ -143,7 +151,7 @@ contract LimboCasino is Ownable, ReentrancyGuard, IEntropyConsumer {
         if (stake < MIN_BET) revert BetTooSmall();
         if (balances[msg.sender] < stake) revert InsufficientBalance();
 
-        uint128 fee = _entropy.getFeeV2();
+        uint128 fee = _entropy.getFeeV2(CALLBACK_GAS_LIMIT);
         if (msg.value < fee) revert InsufficientEntropyFee();
 
         uint256 potentialPayout = stake * target / SCALE;
@@ -160,15 +168,18 @@ contract LimboCasino is Ownable, ReentrancyGuard, IEntropyConsumer {
 
         totalWagered += stake;
 
-        // --- INTERACTIONS --- единственный внешний вызов; sequenceNumber известен только после него
-        uint64 seq = _entropy.requestV2{ value: fee }();
+        // --- INTERACTIONS --- единственный внешний вызов; sequenceNumber известен только после него.
+        // Явный gasLimit: колбэк обязан уложиться, иначе Pyth пометит CALLBACK_FAILED и ставка зависнет.
+        uint64 seq = _entropy.requestV2{ value: fee }(CALLBACK_GAS_LIMIT);
 
         bets[seq] = Bet({
             player: msg.sender,
             stake: stake,
             target: target,
             potentialPayout: potentialPayout,
-            settled: false
+            settled: false,
+            // forge-lint: disable-next-line(block-timestamp)
+            requestedAt: uint64(block.timestamp)
         });
         emit BetPlaced(seq, msg.sender, stake, target);
     }
@@ -216,6 +227,25 @@ contract LimboCasino is Ownable, ReentrancyGuard, IEntropyConsumer {
         return address(_entropy);
     }
 
+    /// @notice Вернуть зависшую ставку, если колбэк Pyth не пришёл за STUCK_TIMEOUT (страховка от CALLBACK_FAILED).
+    /// @dev Ничья: ставка возвращается игроку, резерв — в банк. Permissionless. Защита от гонки: settled=true,
+    ///      поэтому поздний колбэк будет отвергнут (UnknownOrSettledBet). Без внешних переводов — pull-over-push.
+    function refundStuckBet(uint64 sequenceNumber) external {
+        Bet storage bet = bets[sequenceNumber];
+        if (bet.player == address(0) || bet.settled) revert UnknownOrSettledBet();
+        // block.timestamp безопасен: таймаут 1 час устойчив к дрейфу времени майнера (секунды).
+        // forge-lint: disable-next-line(block-timestamp)
+        if (block.timestamp < bet.requestedAt + STUCK_TIMEOUT) revert BetNotStuck();
+
+        bet.settled = true; // EFFECTS first — закрывает ставку и блокирует поздний колбэк
+        locked -= bet.potentialPayout; // освобождаем резерв
+        casinoBank += bet.potentialPayout; // ...возвращаем его в банк
+        casinoBank -= bet.stake; // ...и возвращаем ставку игроку (potentialPayout >= stake, минуса нет)
+        balances[bet.player] += bet.stake;
+
+        emit BetRefunded(sequenceNumber, bet.player, bet.stake);
+    }
+
     // ============================================================
     // Математика множителя — чистая и проверяемая (тот же приём, что у Stake)
     // ============================================================
@@ -239,9 +269,9 @@ contract LimboCasino is Ownable, ReentrancyGuard, IEntropyConsumer {
     // Дашборд самоаудита (view)
     // ============================================================
 
-    /// @notice Текущая комиссия Pyth за один запрос (wei).
+    /// @notice Текущая комиссия Pyth за один запрос ставки (wei) — под наш gasLimit колбэка.
     function entropyFee() external view returns (uint256) {
-        return _entropy.getFeeV2();
+        return _entropy.getFeeV2(CALLBACK_GAS_LIMIT);
     }
 
     /// @notice Преимущество казино в б.п. (константа игры): 10000 - RTP = 100 б.п. = 1%.
@@ -293,7 +323,4 @@ contract LimboCasino is Ownable, ReentrancyGuard, IEntropyConsumer {
         if (!ok) revert TransferFailed();
         emit HouseWithdrawn(amount);
     }
-
-    /// @dev Pyth v2 не возвращает излишек комиссии; receive оставлен как в офиц. примере.
-    receive() external payable { }
 }

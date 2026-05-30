@@ -17,7 +17,7 @@ contract MockEntropy {
         fee = f;
     }
 
-    function getFeeV2() external view returns (uint128) {
+    function getFeeV2(uint32) external view returns (uint128) {
         return fee;
     }
 
@@ -25,7 +25,7 @@ contract MockEntropy {
         return PROVIDER;
     }
 
-    function requestV2() external payable returns (uint64) {
+    function requestV2(uint32) external payable returns (uint64) {
         seqCounter += 1;
         return seqCounter;
     }
@@ -33,6 +33,18 @@ contract MockEntropy {
     /// @dev Имитация второй транзакции Pyth: вызов колбэка потребителя.
     function fireCallback(address consumer, uint64 seq, bytes32 rnd) external {
         IEntropyConsumer(consumer)._entropyCallback(seq, PROVIDER, rnd);
+    }
+
+    /// @dev Имитация реального Pyth: реверт колбэка НЕ откатывает tx (проглатывается -> CALLBACK_FAILED).
+    function fireCallbackCatching(address consumer, uint64 seq, bytes32 rnd)
+        external
+        returns (bool ok)
+    {
+        try IEntropyConsumer(consumer)._entropyCallback(seq, PROVIDER, rnd) {
+            ok = true;
+        } catch {
+            ok = false;
+        }
     }
 }
 
@@ -156,7 +168,7 @@ contract LimboCasinoTest is Test {
         assertEq(casino.casinoBank(), 50 ether + stake - potential);
         assertEq(casino.totalWagered(), stake);
 
-        (address p, uint256 s, uint256 t, uint256 pp, bool settled) = casino.bets(seq);
+        (address p, uint256 s, uint256 t, uint256 pp, bool settled,) = casino.bets(seq);
         assertEq(p, player);
         assertEq(s, stake);
         assertEq(t, TWO_X);
@@ -236,7 +248,7 @@ contract LimboCasinoTest is Test {
         assertEq(casino.betsWon(), 1);
         assertEq(casino.betsTotal(), 1);
 
-        (,,,, bool settled) = casino.bets(seq);
+        (,,,, bool settled,) = casino.bets(seq);
         assertTrue(settled);
         _assertAccountingInvariant();
     }
@@ -385,6 +397,61 @@ contract LimboCasinoTest is Test {
         // guard сработал: прошёл ровно ОДИН вывод (иначе баланс был бы 0, а у атакующего >0.5)
         assertEq(casino.balances(address(attacker)), 0.5 ether);
         assertEq(address(attacker).balance, 0.5 ether);
+    }
+
+    // ============================================================
+    // Возврат зависшей ставки (страховка от сбоя колбэка Pyth — HIGH из аудита)
+    // ============================================================
+
+    function test_RefundStuckBet() public {
+        _deposit(player, 1 ether);
+        uint256 stake = 0.1 ether;
+        uint256 bankBefore = casino.casinoBank();
+        uint64 seq = _placeBet(player, TWO_X, stake); // колбэк НЕ приходит — имитация CALLBACK_FAILED/недоставки
+
+        vm.warp(block.timestamp + casino.STUCK_TIMEOUT() + 1);
+        casino.refundStuckBet(seq); // permissionless
+
+        // ничья: ставка вернулась игроку, резерв — в банк, locked обнулён
+        assertEq(casino.balances(player), 1 ether);
+        assertEq(casino.locked(), 0);
+        assertEq(casino.casinoBank(), bankBefore);
+        (,,,, bool settled,) = casino.bets(seq);
+        assertTrue(settled);
+        _assertAccountingInvariant();
+    }
+
+    function test_RefundStuckBet_RevertsTooEarly() public {
+        _deposit(player, 1 ether);
+        uint64 seq = _placeBet(player, TWO_X, 0.1 ether);
+        vm.expectRevert(LimboCasino.BetNotStuck.selector);
+        casino.refundStuckBet(seq);
+    }
+
+    function test_RefundStuckBet_RevertsUnknownOrSettled() public {
+        _deposit(player, 1 ether);
+        uint64 seq = _placeBet(player, TWO_X, 0.1 ether);
+        entropy.fireCallback(address(casino), seq, RND_MAX); // ставка уже разыграна
+        uint256 t = casino.STUCK_TIMEOUT();
+        vm.warp(block.timestamp + t + 1);
+        vm.expectRevert(LimboCasino.UnknownOrSettledBet.selector);
+        casino.refundStuckBet(seq);
+    }
+
+    function test_LateCallbackAfterRefund_Reverts() public {
+        _deposit(player, 1 ether);
+        uint64 seq = _placeBet(player, TWO_X, 0.1 ether);
+        vm.warp(block.timestamp + casino.STUCK_TIMEOUT() + 1);
+        casino.refundStuckBet(seq);
+        // поздний колбэк после возврата отвергается (защита от двойной обработки)
+        vm.expectRevert(LimboCasino.UnknownOrSettledBet.selector);
+        entropy.fireCallback(address(casino), seq, RND_MAX);
+    }
+
+    function test_CallbackRevertIsSwallowedLikePyth() public {
+        // реальный Pyth глотает реверт колбэка: неизвестный seq не «роняет Pyth», tx не откатывается
+        bool ok = entropy.fireCallbackCatching(address(casino), 12_345, RND_MAX);
+        assertFalse(ok);
     }
 }
 
