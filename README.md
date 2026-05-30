@@ -23,7 +23,10 @@ What I deliberately did **not** do: spin up multi-agent orchestration or my heav
 
 ## Live demo & on-chain verification
 
-*(to be completed — live testnet URL + verified contract on Basescan Sepolia)*
+- **Contract (Base Sepolia, verified):** [`0x8B8d552C384685afaC6C01E6524A3053eb308e54`](https://sepolia.basescan.org/address/0x8b8d552c384685afac6c01e6524a3053eb308e54#code)
+- **Provable randomness:** Pyth Entropy, async request → callback. Каждую ставку можно проверить on-chain по `sequenceNumber`; множитель пересчитывается из случайного числа функцией `previewMultiplier`.
+- **Sanity-проверка end-to-end:** ставка `sequenceNumber 55986` (2.00x) — выигрыш, выплата начислена, учёт сошёлся.
+- **Live URL:** *(to be completed — Vercel)*
 
 ## Run locally
 
