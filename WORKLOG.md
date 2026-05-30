@@ -57,3 +57,12 @@
 - ⚠️ Урок: гигантский ABI как `export const … as const` в `.ts` ломает парсер Turbopack/SWC (`Expected ';'…`). Решение: ABI в `getContract` не передаём, все вызовы — полными сигнатурами методов/событий. Canonical ABI — в `contracts/out` и на Basescan.
 - ⚠️ Окружение: `localhost:3000` занят Grafana → dev на 3007; `npm`/`npx` переписывается хуком (RTK) → `next` запускать через `./node_modules/.bin/next`.
 - Дальше: чекпоинт 3 — ставка Limbo (async `placeBet` → `BetSettled`), анимация множителя.
+
+## (Фронт) Чекпоинт 3 — ставка Limbo + дашборд самоаудита
+
+- **~18:00 — чекпоинт 3: асинхронная ставка работает end-to-end.** `placeBet` (value = `entropyFee`) → `seq` из `BetPlaced` → ожидание `BetSettled` → результат. Цифра множителя «крутится» в ожидании колбэка.
+- ✅ Проверено on-chain + в UI: ставка 2.00× / 0.001 ETH (seq 55993) проиграла (выпало 1.58×), `betsTotal` 1→2, игровой баланс −0.001. Колбэк Pyth пришёл за секунды.
+- ⚠️ Урок: ожидание колбэка — polling `getContractEvents` от блока ставки + фильтр по `seq` в JS (topic-фильтр по `uint64 indexed` ненадёжен).
+- ⚠️ Урок: Basescan индексирует tx с задержкой (~10 с) → пруф-ссылку увёл с tx ставки на страницу контракта `#events` (всегда доступна, виден и `BetSettled`).
+- **~18:30 — дашборд самоаудита (дифференциатор).** Публичные view (`houseEdgeBps`/`holdBps`/`totalWagered`/`totalPaidOut`/`betsTotal`/`betsWon`/`casinoBank`) без кошелька — виден до подключения. Edge 1% (теория) против фактического hold + банк + ссылка на events.
+- Ядро + дифференциатор готовы. Дальше: полировка (состояния, тексты, бренд, мобильный адаптив), README/Loom, деплой на Vercel.
