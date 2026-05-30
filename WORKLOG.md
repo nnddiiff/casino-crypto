@@ -17,3 +17,11 @@
 - ⚠️ Урок: read-pack не монолитен — `foundry.md` протух (и противоречил сам себе: «только ключ Etherscan» vs «ключ basescan.org»), `base-sepolia.md` актуален. Сверять источники между собой, не доверять одному файлу.
 - **~13:00 — полная сверка read-pack (7 файлов) на противоречия.** On-chain подтверждено (`cast call` на Base Sepolia): Entropy жив, провайдер `0x6CC1…6344`, SDK реально `2.2.1`, `getFeeV2`≈1.5e13 wei (~0.000015 ETH). Исправлены V1-остатки верификации в `read/README.md` и `read/thirdweb.md` (внутренне противоречили). `pyth-entropy.md`: `receive()` не для рефанда — v2 излишек НЕ возвращает, слать ровно `getFeeV2()`. `thirdweb.md`: примеры на Vite → врезка про перенос на Next.js (`process.env.NEXT_PUBLIC_*`, `"use client"`).
 - 📌 Зафиксировать при написании контракта: кран = «один claim на адрес» (DECISIONS), НЕ cooldown из примера OZ; выплата = pull-over-push (в колбэке только `balances[p]+=payout`, без внешнего перевода — иначе колбэк ревертит → PENDING); конвенция победы `result ≥ target` (не инверсная Stake `random ≤ target`); pragma 0.8.28; в `requestV2` слать ровно `getFeeV2()`.
+
+## (H1–H7) Контракт-ядро
+
+- **~14:00 — веха: `LimboCasino.sol` написан и протестирован, 27/27 forge-тестов зелёные.** `forge build` чистый (0 warning), размер 5.8 KB (лимит 24.6 KB).
+- Реализовано: deposit/withdraw (pull-over-push, CEI, nonReentrant); кран (один claim на адрес); `placeBet` с резервом полной выплаты в `locked` (банк не разорить одной ставкой); колбэк Pyth с расчётом исхода без внешних переводов (дёшев → не PENDING); edge-математика (множитель из randomNumber ×0.99, cap 10000x); раздельный учёт `casinoBank`/`faucetPool`/`balances`/`locked`; view для дашборда (`houseEdgeBps`/`holdBps`/`entropyFee`/`previewMultiplier`); админ (`fundBank`/`fundFaucet`/`withdrawHouse`).
+- Инвариант `balance == bank+faucet+locked+Σbalances` проверяется в каждом сценарии + fuzz на диапазон множителя. Деплой-скрипт `script/Deploy.s.sol` готов.
+- ⚠️ Уроки: (1) `forge-lint` поймал divide-before-multiply в формуле множителя — переписал умножения до делений; (2) ловушка `vm.expectRevert` — внешний вызов в аргументах считается «следующим вызовом», выносить в локальную переменную до expectRevert.
+- Дальше: гейт безопасности — независимый adversarial-аудит контракта субагентом (Opus, Read/Grep) перед деплоем.
