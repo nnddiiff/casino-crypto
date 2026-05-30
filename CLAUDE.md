@@ -38,7 +38,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Раздельный учёт: `casinoBank` (платит выигрыши) ≠ `faucetPool` (бесплатный тестовый ETH игрокам). Никогда не платить из единого `address(this).balance`.
 - Кран и вывод: паттерн checks-effects-interactions или `ReentrancyGuard`; один claim крана на адрес.
-- Контракт обязателен к верификации на Basescan Sepolia. API-ключ берётся на `basescan.org` (НЕ на `etherscan.io`).
+- Контракт обязателен к верификации (Etherscan **V2**). API-ключ берётся на `etherscan.io` (единый V2-ключ работает и для Basescan); endpoint `https://api.etherscan.io/v2/api?chainid=84532`. Старый V1 `api-sepolia.basescan.org` отключён 15.08.2025; сайт-эксплорер `sepolia.basescan.org` жив.
 - Единственное преимущество казино — edge игры Limbo, и он прозрачен (`вероятность = RTP/T`); дашборд его показывает.
 
 ## Гейт безопасности контракта (перед деплоем и перед сдачей)
@@ -49,7 +49,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Проекты ещё не созданы; ниже — стандартные команды выбранного стека.
 
-- **Контракт (Foundry):** `forge build`; тесты `forge test`; один тест `forge test --match-test <name> -vvv`; деплой+верификация `forge script <Script> --rpc-url <base-sepolia-rpc> --broadcast --verify --verifier-url https://api-sepolia.basescan.org/api --etherscan-api-key $BASESCAN_API_KEY`.
+- **Контракт (Foundry):** `forge build`; тесты `forge test`; один тест `forge test --match-test <name> -vvv`; деплой+верификация `forge script <Script> --rpc-url $BASE_SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $ETHERSCAN_API_KEY` (verifier-url подхватывается из секции `[etherscan]` в `foundry.toml` — Etherscan V2, `api.etherscan.io/v2/api?chainid=84532`).
 - **Фронт (thirdweb + Next/Vite):** `npm install`; разработка `npm run dev`; сборка `npm run build`; деплой на Vercel.
 
 ## Объём (детали — в `DECISIONS.md`)

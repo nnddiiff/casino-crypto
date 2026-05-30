@@ -26,7 +26,7 @@
 ## Реализационные инварианты (на стороне ассистента, не груз пользователя)
 - Разделить в контракте `casinoBank` (выплаты) и `faucetPool` (кран) — не полагаться на единый `address(this).balance`.
 - Кран: защита от reentrancy (checks-effects-interactions / ReentrancyGuard), один claim на адрес.
-- Верификация контракта на Basescan: API-ключ брать на basescan.org (не etherscan.io).
+- Верификация контракта: Etherscan API **V2** — ключ брать на **etherscan.io** (единый ключ работает и для Basescan), endpoint `https://api.etherscan.io/v2/api?chainid=84532`. V1 `api-sepolia.basescan.org` отключён 15.08.2025; сайт-эксплорер `sepolia.basescan.org` жив. (Прежняя запись про basescan.org устарела после миграции на V2.)
 - Pyth Entropy на Base Sepolia: `0x41c9e39574F40Ad34c79f1C99B66A45eFB830d4c`. Паттерн V2: контракт наследует `IEntropyConsumer`, держит `IEntropyV2`, запрос `requestV2{value: getFeeV2()}()`, колбэк `entropyCallback(seq, provider, randomNumber)`. Адрес/RPC/ключи — в `contracts/.env.example`.
 
 ## Объём (зафиксирован)
