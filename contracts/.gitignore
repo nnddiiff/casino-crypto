@@ -10,6 +10,8 @@ out/
 !/broadcast
 /broadcast/*/31337/
 /broadcast/**/dry-run/
+# timestamped прогоны — храним только run-latest.json как запись деплоя
+/broadcast/**/run-[0-9]*.json
 
 # Docs
 docs/
