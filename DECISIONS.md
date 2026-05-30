@@ -11,6 +11,8 @@
 - Деньги: **нативный тестовый ETH + кран в контракте** — нет деплоя токена, нет approve, простейшая петля deposit/withdraw.
 - Случайность: **Pyth Entropy** — проверяемая on-chain, дешевле/быстрее Chainlink VRF, задеплоена на Base Sepolia, есть готовый пример под Foundry. Откат: commit-reveal.
 - Инструменты: **Foundry** (контракт: write/test/deploy/verify) + **thirdweb v5** (фронт, кошелёк, AA, sponsorGas).
+- Фронт-фреймворк: **Next.js 16 (App Router) + TypeScript**, src-dir, alias `@/*`. Почему: Vercel-native деплой без конфига, shadcn/ui и thirdweb максимально документированы под Next → меньше итераций AI; кошельковые хуки client-only закрываются провайдером-обёрткой. Внимание: это Next **16** (не 15) — ломает часть привычных API, сверяться с `web/node_modules/next/dist/docs/` (предупреждение в `web/AGENTS.md`).
+- Закреплённые версии каркаса (воспроизводимость): solc 0.8.28 (evm cancun, optimizer 200), forge-std 1.16.1, OpenZeppelin 5.6.1, thirdweb 5.120, Tailwind v4, shadcn style `base-nova`.
 - Сборка контракта: примитивы из **OpenZeppelin** (`ReentrancyGuard`, `Ownable`), интеграцию Pyth — из официального `coin_flip`-примера; логику Limbo (выплата, проверка, edge, банк/кран) **пишем сами**. Целый казино-контракт не форкаем — унаследованные баги с деньгами + теряется понимание для Loom/«hardest unknown».
 - Онбординг: thirdweb account abstraction + безгазовый вход — **стретч**; MetaMask — гарантированная страховка.
 - Дизайн/UI: **Claude Code + shadcn/ui** (Tailwind) под конкретный референс (Stake/Shuffle/BC.Game) — один инструмент, бесплатно; v0.dev не берём (скудный free-лимит + второй тул, при референсе качество то же). Фронт/полировка — приоритет; «вау» = анимированная центральная цифра множителя + тёмная тема с ярким акцентом + провабли-фейр-бейдж + mobile-first.
@@ -25,6 +27,7 @@
 - Разделить в контракте `casinoBank` (выплаты) и `faucetPool` (кран) — не полагаться на единый `address(this).balance`.
 - Кран: защита от reentrancy (checks-effects-interactions / ReentrancyGuard), один claim на адрес.
 - Верификация контракта на Basescan: API-ключ брать на basescan.org (не etherscan.io).
+- Pyth Entropy на Base Sepolia: `0x41c9e39574F40Ad34c79f1C99B66A45eFB830d4c`. Паттерн V2: контракт наследует `IEntropyConsumer`, держит `IEntropyV2`, запрос `requestV2{value: getFeeV2()}()`, колбэк `entropyCallback(seq, provider, randomNumber)`. Адрес/RPC/ключи — в `contracts/.env.example`.
 
 ## Объём (зафиксирован)
 Ядро (обязательно довезти, в порядке сборки):
