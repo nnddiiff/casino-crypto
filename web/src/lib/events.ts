@@ -47,6 +47,7 @@ export async function waitForSettlement(
       contract: casino,
       events: [betSettledEvent],
       fromBlock,
+      useIndexer: false, // прямой RPC: Insight у thirdweb домен-ограничен (на preview-деплоях 401), окно мелкое
     });
     const match = events.find((e) => e.args.sequenceNumber === seq);
     if (match) {
