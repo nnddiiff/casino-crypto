@@ -33,3 +33,6 @@ broadcast/**/dry-run/
 # --- ОС / редактор ---
 .DS_Store
 *.log
+
+# --- Артефакты браузерного MCP (playwright / chrome-devtools) ---
+.playwright-mcp/
