@@ -47,3 +47,13 @@
 - ✅ **Гейт ~14:00 пройден на РЕАЛЬНОЙ сети:** deposit 0.02 → `placeBet(2x, 0.01)` → колбэк Pyth (seq **55986**) пришёл за ~секунды → выигрыш (result ≥ 2x), payout 0.02 начислен, `betsTotal=1`, `betsWon=1`, `locked` вернулся в 0.
 - ✅ Инвариант учёта сходится ТОЧНО on-chain: `balance == bank+faucet+locked+Σbalances` = 520984999999999999 wei.
 - Ядро де-рисковано: реальный async-колбэк Pyth работает с контрактом. Дальше — фронт (петля в UI) + дашборд самоаудита.
+
+## (Фронт) Чекпоинты 1–2 — каркас и петля средств
+
+- **~17:30 — веха: фронт-каркас и петля средств работают на реальном контракте.** Next.js 16 + thirdweb v5.
+- Чекпоинт 1 (каркас): провайдер thirdweb (`lib/client`/`chain`/`contract`), тёмная тема charcoal + неон-зелёный (#00e701), `ConnectButton` (встроенный кошелёк + MetaMask, сеть Base Sepolia). Проверено через playwright-MCP: сборка Turbopack чистая (Ready ~230ms), консоль без ошибок, модалка подключения показывает оба кошелька.
+- Чекпоинт 2 (деньги): панель средств — кран → депозит → вывод. Хук `use-tx` (отправка + `waitForReceipt` + тосты sonner), `use-casino` (чтения `balances`/`faucetClaimed`/`faucetPool`/`entropyFee`).
+- ✅ Петля денег подтверждена on-chain (Basescan txlist owner): `claimFaucet` (nonce 5), `deposit` 0.01 (nonce 6), `withdraw` 0.005 (nonce 7) — все success. Игровой баланс сходится до wei: 0.030985 + 0.01 − 0.005 = 0.035985.
+- ⚠️ Урок: гигантский ABI как `export const … as const` в `.ts` ломает парсер Turbopack/SWC (`Expected ';'…`). Решение: ABI в `getContract` не передаём, все вызовы — полными сигнатурами методов/событий. Canonical ABI — в `contracts/out` и на Basescan.
+- ⚠️ Окружение: `localhost:3000` занят Grafana → dev на 3007; `npm`/`npx` переписывается хуком (RTK) → `next` запускать через `./node_modules/.bin/next`.
+- Дальше: чекпоинт 3 — ставка Limbo (async `placeBet` → `BetSettled`), анимация множителя.
