@@ -66,3 +66,22 @@
 - ⚠️ Урок: Basescan индексирует tx с задержкой (~10 с) → пруф-ссылку увёл с tx ставки на страницу контракта `#events` (всегда доступна, виден и `BetSettled`).
 - **~18:30 — дашборд самоаудита (дифференциатор).** Публичные view (`houseEdgeBps`/`holdBps`/`totalWagered`/`totalPaidOut`/`betsTotal`/`betsWon`/`casinoBank`) без кошелька — виден до подключения. Edge 1% (теория) против фактического hold + банк + ссылка на events.
 - Ядро + дифференциатор готовы. Дальше: полировка (состояния, тексты, бренд, мобильный адаптив), README/Loom, деплой на Vercel.
+
+## (Деплой фронта) Vercel — live URL
+
+- **~20:00 — фронт задеплоен на Vercel, петля проверена на боевом URL.** Live: **https://limbo-casino-five.vercel.app**
+- Прод-сборка `next build` (Turbopack) собралась за 8 с — риск node-зависимостей thirdweb НЕ материализовался. Единственный фикс: `tsconfig target ES2017 → ES2020` (bigint-литералы `0n`; dev на Turbopack type-check не делал, поймал только `next build`).
+- Деплой через vercel CLI: `link` (проект `limbo-casino`) + `git connect` (автодеплой на push в `main`) + 3 публичные `NEXT_PUBLIC_*` env (production+preview+development) + Root Directory=`web` (monorepo, через Vercel API `PATCH /v9/projects`). Push → автосборка READY за ~70 с.
+- ✅ Петля на боевом URL: 3 ставки 2.00×/0.001 (выиграли, `betsTotal` 2→5), вывод 0.01 — баланс сошёлся on-chain. Дашборд читает контракт на проде, env вшились, 0 ошибок в консоли.
+- ⚠️ Грабли деплоя: (1) Bash-песочница гонит сеть через прокси, vercel CLI (Node) его не уважает → vercel-команды только с отключённой песочницей; (2) `git connect` требует установленного Vercel GitHub App с доступом к репо (не только OAuth-вход — отсюда `account_not_found`/зацикливание логина: нужен был Sign Up + установка App); (3) Root Directory monorepo не ставится при link из подпапки — задан через API; (4) `git connect` ищет `.git` в cwd → передавать URL репо явно.
+
+## (Гейт безопасности) slot 2 — финальный adversarial-аудит
+
+- **~21:00 — slot 2 пройден: research-методология + 4 независимых аудитора (Opus, read-only) по линзам. Контракт не менялся (byte-identical).**
+- **Вердикт: CRITICAL/HIGH нет, контракт к сдаче, редеплой НЕ нужен.**
+- ✅ Средства (A/D/E): инвариант держится (fuzz 50k); `withdrawHouse` не трогает `locked`/`balances`/`faucet` (доказано с `locked>0` — игрок выводит выигрыш даже после опустошения банка владельцем); CEI/reentrancy чисты; `potentialPayout ≥ stake` → `refundStuckBet` без underflow.
+- ✅ Edge честен (C): RTP 98.94–99.00%, максимум ровно 99/100 (точная рацио-арифметика); целей с RTP>99% нет; все искажения (cap/floor/округление) в пользу казино; модульного смещения нет.
+- ✅ Async/Pyth (B/F): задвоение и гонка `refund↔поздний колбэк` закрыты гардом `settled`; колбэк не ревертит на штатном пути (fuzz 256); газ колбэка 73k(win)/28k(lose) из 200k → **запас 170%** (HIGH slot 1 закрыт с большим запасом, подтверждено на верном gas-limited моке). DoS банка отсекается `BankCannotCover`; faucet Sybil не трогает банк.
+- ✅ Задеплоенный байткод соответствует исходнику (constructor-args, сиды банк 0.4/кран 0.1 сверены on-chain).
+- 📌 Находки LOW/INFO (редеплой не требуется): (1) **[LOW]** `BetSettled` не эмитит сырой `randomNumber` — пруф честности неполон, закрывается фронтом (экран-верификатор по событию Pyth `Revealed`); (2) trust-модель Pyth (`requestV2` без `userRandomNumber` → доверие валидатор+провайдер) — раскрыть в README; (3) `refundStuckBet` искажает hold-статистику дашборда — README/опц. `totalWagered -= stake`; (4) force-fed ETH заперт by design — упомянуть в README; (5) тест-мок не похож на Pyth (plain-call без gasLimit) — сьют слаб как доказательство, но контракт безопасен по прямым пробам; опц. постоянный gas-limited мок + газовый регресс-тест.
+- ⚠️ Урок: read-only аудиторы (тип `security-auditor`, tools=All) создавали временные `*.t.sol` в `contracts/test/`, один не компилировался и ронял весь `forge test`. Почистил, боевой сьют 32/32. Впредь — пробы аудиторов в `/tmp`.
