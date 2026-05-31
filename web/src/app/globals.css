@@ -132,3 +132,55 @@
     @apply font-sans;
   }
 }
+
+/* Горизонтальный стрип кэфов: прячем системную полосу прокрутки (скролл свайпом/колесом остаётся). */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* старый Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chromium / Safari */
+}
+
+/* Мягкое затухание у правого края — намёк «прокрути, есть ещё». На непереполненном стрипе невидимо. */
+.fade-right {
+  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+}
+
+/* Ожидание колбэка Pyth: лёгкая «дышащая» пульсация разгоняющегося числа (не мёртвый экран). */
+@keyframes spin-pulse {
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.animate-spin-pulse {
+  animation: spin-pulse 1.1s ease-in-out infinite;
+}
+
+/* Фиксация результата: короткий «pop» (scale-bounce). */
+@keyframes result-pop {
+  0% {
+    transform: scale(0.95);
+  }
+  55% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.animate-result-pop {
+  animation: result-pop 0.42s cubic-bezier(0.22, 1.2, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin-pulse,
+  .animate-result-pop {
+    animation: none;
+  }
+}

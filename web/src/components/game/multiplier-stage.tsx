@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import type { BetPhase, BetResult, PendingBet } from "@/hooks/use-place-bet";
 import type { RecentBet } from "@/hooks/use-recent-bets";
@@ -10,6 +10,14 @@ import { formatEth, formatMultiplier } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const easeOut = (x: number) => 1 - (1 - x) ** 3;
+
+/** Пользователь просит без анимаций — уважаем prefers-reduced-motion. */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+  );
+}
 
 type StageProps = {
   phase: BetPhase;
@@ -37,7 +45,7 @@ export function MultiplierStage({
 }: StageProps) {
   return (
     <Card className="flex min-h-[360px] flex-1 flex-col justify-between gap-0 py-0 sm:min-h-[440px]">
-      <div className="flex items-center gap-1.5 overflow-x-auto px-4 py-3">
+      <div className="no-scrollbar fade-right flex items-center gap-1.5 overflow-x-auto px-4 py-3">
         {recent.length === 0 ? (
           <span className="text-xs text-muted-foreground">
             Лента ставок появится после первых розыгрышей
@@ -88,48 +96,96 @@ function ResultPill({ bet }: { bet: RecentBet }) {
   );
 }
 
+/** Разгон во время ожидания: монотонный рост ВВЕРХ с ускорением (ease-in), без случайных скачков. */
+const SPIN_RATE = 0.85; // экспонента разгона (доли/сек)
+const SPIN_CAP = 50; // мягкий потолок — дальше медленный дрейф, не упор и не зависание
+
 function BigMultiplier({ phase, result }: { phase: BetPhase; result: BetResult }) {
   const [display, setDisplay] = useState("1.00");
-  // Спокойное ожидание: НИКАКОЙ случайной крутки. Число держится на «1.00» и слегка пульсирует.
-  const pendingPhase =
-    phase === "submitting" || phase === "waiting" || phase === "delayed";
+  const [popping, setPopping] = useState(false);
+  const valueRef = useRef(1); // текущее показанное число (точка старта для count-up на результате)
+  const rafRef = useRef(0);
+
+  const spinning = phase === "waiting" || phase === "delayed";
+  const won = phase === "result" && result?.won === true;
+  const lost = phase === "result" && result !== null && !result.won;
 
   useEffect(() => {
-    if (phase === "result" && result) {
-      // «Прокрут вверх и замирание»: count-up от 1.00 к выпавшему множителю.
-      const final = Number(result.resultMultiplier) / 1_000_000;
-      const startedAt = performance.now();
-      const duration = 550;
-      let raf = 0;
-      const tick = (t: number) => {
-        const k = Math.min(1, (t - startedAt) / duration);
-        const value = 1 + (final - 1) * easeOut(k);
-        setDisplay(value.toFixed(2));
-        if (k < 1) raf = requestAnimationFrame(tick);
-        else setDisplay(final.toFixed(2));
-      };
-      raf = requestAnimationFrame(tick);
-      return () => cancelAnimationFrame(raf);
-    }
-    setDisplay("1.00");
-  }, [phase, result]);
+    cancelAnimationFrame(rafRef.current);
+    const reduced = prefersReducedMotion();
 
-  const won = phase === "result" && result?.won;
-  const lost = phase === "result" && result && !result.won;
+    // Покой / отправка / ошибка: спокойная «1.00», без разгона.
+    if (phase === "idle" || phase === "submitting" || phase === "error") {
+      valueRef.current = 1;
+      setDisplay("1.00");
+      setPopping(false);
+      return;
+    }
+
+    // Ожидание колбэка Pyth: число ползёт вверх ускоряясь. reduced-motion → держим 1.00 статично.
+    if (spinning) {
+      setPopping(false);
+      if (reduced) {
+        setDisplay("1.00");
+        return;
+      }
+      const capTime = Math.log(SPIN_CAP) / SPIN_RATE; // когда разгон достигнет потолка
+      const start = performance.now();
+      const tick = (t: number) => {
+        const elapsed = (t - start) / 1000;
+        let v = Math.exp(elapsed * SPIN_RATE); // 1.0 в нуле, дальше ускоряется
+        if (v > SPIN_CAP) v = SPIN_CAP + (elapsed - capTime) * 0.8; // мягкий дрейф, остаётся «живым»
+        valueRef.current = v;
+        setDisplay(v.toFixed(2));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(rafRef.current);
+    }
+
+    // Раскрытие: быстрый count-up от показанного значения к РЕАЛЬНОМУ выпавшему + «pop».
+    if (phase === "result" && result) {
+      const final = Number(result.resultMultiplier) / 1_000_000;
+      if (reduced) {
+        valueRef.current = final;
+        setDisplay(final.toFixed(2));
+        setPopping(false);
+        return;
+      }
+      const from = valueRef.current;
+      const start = performance.now();
+      const duration = 500;
+      const tick = (t: number) => {
+        const k = Math.min(1, (t - start) / duration);
+        const value = from + (final - from) * easeOut(k);
+        setDisplay(value.toFixed(2));
+        if (k < 1) {
+          rafRef.current = requestAnimationFrame(tick);
+        } else {
+          setDisplay(final.toFixed(2));
+          valueRef.current = final;
+          setPopping(true); // короткий scale-bounce на фиксации
+        }
+      };
+      rafRef.current = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(rafRef.current);
+    }
+  }, [phase, result, spinning]);
 
   return (
     <div
       className={cn(
-        "flex items-baseline font-bold tabular-nums transition-all duration-300",
-        won && "text-primary drop-shadow-[0_0_24px_rgba(0,231,1,0.35)]",
+        "flex items-start font-bold tabular-nums transition-colors duration-300",
+        won && "text-primary drop-shadow-[0_0_28px_rgba(0,231,1,0.45)]",
         lost && "text-destructive",
-        !won && !lost && "text-foreground",
-        phase === "result" && "scale-105",
-        pendingPhase && "animate-pulse",
+        !won && !lost && spinning && "text-muted-foreground",
+        !won && !lost && !spinning && "text-foreground",
+        spinning && "animate-spin-pulse",
+        popping && "animate-result-pop",
       )}
     >
-      <span className="text-7xl sm:text-8xl">{display}</span>
-      <span className="text-3xl text-muted-foreground">×</span>
+      <span className="text-7xl leading-none sm:text-8xl">{display}</span>
+      <span className="ml-1 mt-1 text-4xl leading-none opacity-80 sm:text-5xl">×</span>
     </div>
   );
 }
@@ -163,7 +219,7 @@ function StatusLine({
   if (phase === "waiting") {
     return (
       <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Spinner /> Ждём результат от Pyth Entropy…
+        <Spinner /> <span className="text-primary">✦</span> Крутим случайность Pyth…
       </p>
     );
   }
