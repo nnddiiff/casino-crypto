@@ -135,6 +135,11 @@ outcome wasn't forged. Verified end-to-end (e.g. seq 56001: `0xf710d6…` → 25
   without a wallet connected.
 - The revised UX (this submission) type-checks clean, renders clean (0 console errors), and the
   gasless "log in → auto-faucet → batched deposit+bet" cascade is wired.
+- The async bet UX is honest about Pyth's two-transaction model: the multiplier holds calmly at
+  1.00 while waiting (no fake spinning number), a **retry** path if the submit fails before it
+  lands (no phantom result, funds untouched), a **"taking longer than usual"** state that links the
+  in-flight bet on-chain by sequence number, and a **`refundStuckBet`** fallback (the contract's own
+  1-hour safety net) if a callback never arrives — surfaced in the UI, not just the contract.
 
 **Not done / honest gaps:**
 
