@@ -22,7 +22,12 @@ export function useAccount(address?: string) {
     queryOptions: { enabled: !!address, refetchInterval: 8000 },
   });
 
-  const wallet = useWalletBalance({ client, chain, address });
+  // W (нативный ETH смарт-аккаунта) поллим тем же интервалом, что и G, — иначе внешнее пополнение
+  // (перевод из MetaMask на адрес счёта) не видно без перезагрузки. enabled — чтения только после входа.
+  const wallet = useWalletBalance(
+    { client, chain, address },
+    { enabled: !!address, refetchInterval: 8000 },
+  );
 
   const faucetClaimed = useReadContract({
     contract: casino,
