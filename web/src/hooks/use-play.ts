@@ -17,7 +17,7 @@ import {
   readGameBalance,
   readWalletBalance,
 } from "@/lib/funding";
-import { accountAbstraction, wallets } from "@/lib/wallet";
+import { connectModalConfig } from "@/lib/wallet";
 import { usePlaceBet } from "./use-place-bet";
 
 /**
@@ -61,14 +61,7 @@ export function usePlay(onSettled?: (result: SettledResult) => void) {
     if (!account) {
       setPreparing(true);
       try {
-        const wallet = await connect({
-          client,
-          chain,
-          wallets,
-          accountAbstraction,
-          size: "compact",
-          theme: "dark",
-        });
+        const wallet = await connect(connectModalConfig);
         account = wallet.getAccount();
       } catch {
         setPreparing(false);

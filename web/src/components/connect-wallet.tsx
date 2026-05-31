@@ -10,10 +10,9 @@ import {
   useDisconnect,
 } from "thirdweb/react";
 import { Button } from "@/components/ui/button";
-import { chain } from "@/lib/chain";
 import { client } from "@/lib/client";
 import { addressUrl } from "@/lib/constants";
-import { accountAbstraction, wallets } from "@/lib/wallet";
+import { accountAbstraction, connectModalConfig, wallets } from "@/lib/wallet";
 
 function shortAddr(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -35,14 +34,7 @@ export function ConnectWallet() {
 
   async function login() {
     try {
-      await connect({
-        client,
-        chain,
-        wallets,
-        accountAbstraction,
-        size: "compact",
-        theme: "dark",
-      });
+      await connect(connectModalConfig);
     } catch {
       /* пользователь закрыл окно входа */
     }
