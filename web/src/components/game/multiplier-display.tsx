@@ -56,7 +56,7 @@ export function MultiplierDisplay({
 
 function StatusLine({ phase, result }: { phase: BetPhase; result: BetResult }) {
   if (phase === "submitting") {
-    return <p className="text-sm text-muted-foreground">Подтвердите ставку в кошельке…</p>;
+    return <p className="text-sm text-muted-foreground">Отправляем ставку…</p>;
   }
   if (phase === "waiting") {
     return <p className="text-sm text-muted-foreground">Pyth Entropy определяет результат…</p>;

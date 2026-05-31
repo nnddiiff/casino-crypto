@@ -20,7 +20,7 @@ export function useTx() {
     label: string,
     onConfirmed?: () => void,
   ): Promise<boolean> {
-    const id = toast.loading(`${label}: подтвердите в кошельке…`);
+    const id = toast.loading(`${label}: отправляем транзакцию…`);
     try {
       const result = await mutateAsync(tx);
       toast.loading(`${label}: ждём подтверждения сети…`, { id });
