@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { sendTransaction, waitForReceipt } from "thirdweb";
 import { useActiveAccount, useConnectModal } from "thirdweb/react";
 import type { Account } from "thirdweb/wallets";
@@ -54,26 +54,27 @@ export function usePlay(onSettled?: (result: SettledResult) => void) {
   const { connect } = useConnectModal();
   const { phase, result, place, reset } = usePlaceBet(onSettled);
   const [preparing, setPreparing] = useState(false);
+  // Синхронный гард двойной отправки: реактивный `busy`/disabled не закрывает двойной клик
+  // за один тик до ре-рендера (риск гонки nonce). Выставляем ДО первого await, снимаем в finally.
+  const inFlight = useRef(false);
 
   async function play(target: bigint, stake: bigint) {
-    let account = active;
-
-    if (!account) {
-      setPreparing(true);
-      try {
-        const wallet = await connect(connectModalConfig);
-        account = wallet.getAccount();
-      } catch {
-        setPreparing(false);
-        return; // пользователь закрыл вход
-      }
-    }
-    if (!account) {
-      setPreparing(false);
-      return;
-    }
-
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
+      let account = active;
+
+      if (!account) {
+        setPreparing(true);
+        try {
+          const wallet = await connect(connectModalConfig);
+          account = wallet.getAccount();
+        } catch {
+          return; // пользователь закрыл вход
+        }
+      }
+      if (!account) return;
+
       const fee = await readEntropyFee();
       const funded = await ensureFunded(account, stake + fee);
       setPreparing(false);
@@ -83,8 +84,10 @@ export function usePlay(onSettled?: (result: SettledResult) => void) {
       }
       await place(account, target, stake);
     } catch (e) {
-      setPreparing(false);
       toast.error(errMessage(e));
+    } finally {
+      setPreparing(false);
+      inFlight.current = false;
     }
   }
 
