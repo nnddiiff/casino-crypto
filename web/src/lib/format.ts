@@ -21,6 +21,11 @@ export function tryParseEth(value: string): bigint {
   }
 }
 
+/** wei → строка ETH без округления — для подстановки в поле ввода (кнопки ½ / 2×). */
+export function toEthInput(wei: bigint): string {
+  return toEther(wei);
+}
+
 /** Короткое сообщение из ошибки кошелька/RPC (обрезаем длинные хвосты). */
 export function errMessage(e: unknown): string {
   if (e instanceof Error) {

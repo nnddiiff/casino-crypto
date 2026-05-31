@@ -1,13 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { parseEventLogs, prepareContractCall, waitForReceipt } from "thirdweb";
-import { useSendTransaction } from "thirdweb/react";
+import {
+  parseEventLogs,
+  sendBatchTransaction,
+  sendTransaction,
+  waitForReceipt,
+} from "thirdweb";
 import { toast } from "sonner";
+import type { Account } from "thirdweb/wallets";
 import { chain } from "@/lib/chain";
 import { client } from "@/lib/client";
-import { casino } from "@/lib/contract";
 import { betPlacedEvent, type SettledResult, waitForSettlement } from "@/lib/events";
+import {
+  buildBetBatch,
+  readEntropyFee,
+  readGameBalance,
+  readWalletBalance,
+} from "@/lib/funding";
 import { errMessage } from "@/lib/format";
 
 export type BetPhase = "idle" | "submitting" | "waiting" | "result";
@@ -15,25 +25,35 @@ export type BetResult = (SettledResult & { txHash: string }) | null;
 
 /**
  * Машина состояний асинхронной ставки Limbo:
- * idle → submitting (tx1: placeBet) → waiting (ждём колбэк Pyth) → result.
- * @param onSettled колбэк после расчёта — для обновления балансов.
+ * idle → submitting (UserOp: автодепозит при нехватке + placeBet) → waiting (колбэк Pyth) → result.
+ *
+ * Финансирование скрыто: если в игре не хватает на ставку, тем же UserOp незаметно доносим
+ * нужную сумму со смарт-аккаунта (depositTx) — для игрока это один баланс «Счёт казино».
+ * @param onSettled колбэк после расчёта — обновить балансы/ленту.
  */
-export function usePlaceBet(onSettled?: () => void) {
+export function usePlaceBet(onSettled?: (result: SettledResult) => void) {
   const [phase, setPhase] = useState<BetPhase>("idle");
   const [result, setResult] = useState<BetResult>(null);
-  const { mutateAsync } = useSendTransaction();
 
-  async function place(target: bigint, stake: bigint, fee: bigint) {
+  async function place(account: Account, target: bigint, stake: bigint) {
     setPhase("submitting");
     setResult(null);
     try {
-      const tx = prepareContractCall({
-        contract: casino,
-        method: "function placeBet(uint256 target, uint256 stake) payable",
-        params: [target, stake],
-        value: fee, // msg.value = комиссия Pyth (getFeeV2)
-      });
-      const sent = await mutateAsync(tx);
+      const [gameBal, walletBal, fee] = await Promise.all([
+        readGameBalance(account.address),
+        readWalletBalance(account.address),
+        readEntropyFee(),
+      ]);
+      if (gameBal + walletBal < stake + fee) {
+        throw new Error("Недостаточно средств на счёте");
+      }
+
+      const txs = buildBetBatch(gameBal, walletBal, target, stake, fee);
+      const sent =
+        txs.length > 1
+          ? await sendBatchTransaction({ account, transactions: txs })
+          : await sendTransaction({ account, transaction: txs[0] });
+
       const receipt = await waitForReceipt({
         client,
         chain,
@@ -50,7 +70,7 @@ export function usePlaceBet(onSettled?: () => void) {
       const settled = await waitForSettlement(seq, receipt.blockNumber);
       setResult({ ...settled, txHash: sent.transactionHash });
       setPhase("result");
-      onSettled?.();
+      onSettled?.(settled);
     } catch (e) {
       toast.error(`Ставка: ${errMessage(e)}`);
       setPhase("idle");
