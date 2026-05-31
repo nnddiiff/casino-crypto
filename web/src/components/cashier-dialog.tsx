@@ -21,7 +21,7 @@ import { useAccount } from "@/hooks/use-account";
 import { useSend } from "@/hooks/use-send";
 import { chain } from "@/lib/chain";
 import { client } from "@/lib/client";
-import { FAUCET_AMOUNT } from "@/lib/constants";
+import { FAUCET_AMOUNT, txUrl } from "@/lib/constants";
 import { formatEth, tryParseEth } from "@/lib/format";
 import { buildWithdrawBatch, claimFaucetTx } from "@/lib/funding";
 import {
@@ -33,7 +33,11 @@ import {
   sendNativeFromInjected,
   USER_REJECTED,
 } from "@/lib/injected";
-import { accountAbstraction, wallets } from "@/lib/wallet";
+import { connectModalConfig } from "@/lib/wallet";
+
+function shortAddr(a: string): string {
+  return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
+}
 
 function CardGlyph() {
   return (
@@ -68,14 +72,7 @@ export function CashierButton() {
       return;
     }
     try {
-      await connect({
-        client,
-        chain,
-        wallets,
-        accountAbstraction,
-        size: "compact",
-        theme: "dark",
-      });
+      await connect(connectModalConfig);
       setOpen(true);
     } catch {
       /* пользователь закрыл вход */
@@ -107,6 +104,11 @@ function CashierContent() {
   const [depositing, setDepositing] = useState(false);
   const [picking, setPicking] = useState(false);
   const [hasProvider, setHasProvider] = useState(false);
+  const [withdrawResult, setWithdrawResult] = useState<{
+    txHash: string;
+    amount: string;
+    to: string;
+  } | null>(null);
 
   // Наличие инжектируемого кошелька определяем после монтирования (hydration-safe).
   useEffect(() => {
@@ -160,14 +162,18 @@ function CashierContent() {
     }
   }
 
-  function onWithdraw() {
+  async function onWithdraw() {
     const value = tryParseEth(amount);
     if (value <= 0n || !isAddress(to) || walletBal === undefined) return;
-    void send(buildWithdrawBatch(walletBal, value, to), "Вывод", () => {
+    const sentAmount = amount;
+    const sentTo = to;
+    const txHash = await send(buildWithdrawBatch(walletBal, value, sentTo), "Вывод");
+    if (txHash) {
+      setWithdrawResult({ txHash, amount: sentAmount, to: sentTo });
       setAmount("");
       setTo("");
       refresh();
-    });
+    }
   }
 
   // Только источник адреса: MetaMask ничего не подписывает, выплата идёт со смарт-аккаунта gasless.
@@ -309,6 +315,25 @@ function CashierContent() {
         {/* Вывести */}
         <TabsContent value="withdraw">
           <div className="flex flex-col gap-2">
+            {withdrawResult ? (
+              <div className="mb-1 flex flex-col gap-1.5 rounded-lg border border-primary/40 bg-primary/5 p-3">
+                <p className="text-sm font-medium text-primary">
+                  Выведено {withdrawResult.amount} ETH → {shortAddr(withdrawResult.to)}
+                </p>
+                <a
+                  href={txUrl(withdrawResult.txHash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary underline-offset-4 hover:underline"
+                >
+                  Транзакция на Basescan →
+                </a>
+                <p className="text-xs text-muted-foreground">
+                  Средства в сети Base Sepolia. Если не видишь их в кошельке — переключи сеть на
+                  Base Sepolia.
+                </p>
+              </div>
+            ) : null}
             <Label htmlFor="wd-to">Адрес назначения</Label>
             <Input
               id="wd-to"
@@ -342,7 +367,7 @@ function CashierContent() {
               <Button
                 className="h-10 shrink-0"
                 disabled={isPending || withdrawInvalid}
-                onClick={onWithdraw}
+                onClick={() => void onWithdraw()}
               >
                 Вывести
               </Button>

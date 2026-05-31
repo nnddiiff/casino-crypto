@@ -16,7 +16,7 @@ import { errMessage } from "@/lib/format";
 /**
  * Отправка одной или нескольких операций активным смарт-аккаунтом с тостами статуса.
  * Несколько операций уходят одним UserOp (sendBatchTransaction) — атомарно и без лишних подтверждений.
- * Для кассы (кран/вывод). Ставка Limbo асинхронна — у неё своя машина состояний (usePlaceBet).
+ * Возвращает txHash при успехе (для пруфа — ссылки на Basescan) или null при ошибке.
  */
 export function useSend() {
   const account = useActiveAccount();
@@ -26,8 +26,8 @@ export function useSend() {
     txs: PreparedTransaction[],
     label: string,
     onConfirmed?: () => void,
-  ): Promise<boolean> {
-    if (!account || txs.length === 0) return false;
+  ): Promise<string | null> {
+    if (!account || txs.length === 0) return null;
     setIsPending(true);
     const id = toast.loading(`${label}: отправляем…`);
     try {
@@ -42,10 +42,10 @@ export function useSend() {
       });
       toast.success(`${label}: готово`, { id });
       onConfirmed?.();
-      return true;
+      return sent.transactionHash;
     } catch (e) {
       toast.error(`${label}: не удалось`, { id, description: errMessage(e) });
-      return false;
+      return null;
     } finally {
       setIsPending(false);
     }
