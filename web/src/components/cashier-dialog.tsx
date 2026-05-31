@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { waitForReceipt } from "thirdweb";
 import { QRCodeSVG } from "qrcode.react";
 import { useActiveAccount, useConnectModal } from "thirdweb/react";
 import { isAddress } from "thirdweb/utils";
@@ -23,6 +24,15 @@ import { client } from "@/lib/client";
 import { FAUCET_AMOUNT } from "@/lib/constants";
 import { formatEth, tryParseEth } from "@/lib/format";
 import { buildWithdrawBatch, claimFaucetTx } from "@/lib/funding";
+import {
+  ensureBaseSepolia,
+  errorCode,
+  getInjectedProvider,
+  injectedMessage,
+  requestAccount,
+  sendNativeFromInjected,
+  USER_REJECTED,
+} from "@/lib/injected";
 import { accountAbstraction, wallets } from "@/lib/wallet";
 
 function CardGlyph() {
@@ -46,7 +56,6 @@ function CardGlyph() {
 /**
  * Триггер «Касса» в шапке + модалка со вкладками «Пополнить | Вывести».
  * До входа кнопка ведёт на email-вход (useConnectModal), после — открывает кассу.
- * Презентация перенесена из инлайн-блока; логика та же (useSend, useAccount, билдеры funding.ts).
  */
 export function CashierButton() {
   const active = useActiveAccount();
@@ -93,7 +102,16 @@ function CashierContent() {
 
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
+  const [depositAmount, setDepositAmount] = useState("");
   const [copied, setCopied] = useState(false);
+  const [depositing, setDepositing] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [hasProvider, setHasProvider] = useState(false);
+
+  // Наличие инжектируемого кошелька определяем после монтирования (hydration-safe).
+  useEffect(() => {
+    setHasProvider(!!getInjectedProvider());
+  }, []);
 
   const address = active?.address;
   const total = reads.total;
@@ -107,6 +125,41 @@ function CashierContent() {
     void send([claimFaucetTx()], "Пополнение", refresh);
   }
 
+  // Пополнение прямым переводом из MetaMask на адрес «Счёта казино» (в обход thirdweb).
+  async function onDepositFromWallet() {
+    const provider = getInjectedProvider();
+    if (!provider || !address) return;
+    const value = tryParseEth(depositAmount);
+    if (value <= 0n) {
+      toast.error("Введите сумму пополнения");
+      return;
+    }
+    setDepositing(true);
+    const id = toast.loading("Открываем кошелёк…");
+    try {
+      const from = await requestAccount(provider);
+      await ensureBaseSepolia(provider);
+      toast.loading("Подтвердите перевод в кошельке…", { id });
+      const txHash = await sendNativeFromInjected(provider, from, address, value);
+      toast.loading("Ждём подтверждения сети…", { id });
+      await waitForReceipt({ client, chain, transactionHash: txHash });
+      toast.success("Счёт пополнен", { id });
+      setDepositAmount("");
+    } catch (e) {
+      if (errorCode(e) === USER_REJECTED) {
+        toast.error("Отклонено в кошельке", { id });
+      } else {
+        toast.error("Не удалось пополнить из кошелька", {
+          id,
+          description: injectedMessage(e),
+        });
+      }
+    } finally {
+      setDepositing(false);
+      refresh(); // средства могли прийти даже при долгом подтверждении
+    }
+  }
+
   function onWithdraw() {
     const value = tryParseEth(amount);
     if (value <= 0n || !isAddress(to) || walletBal === undefined) return;
@@ -115,6 +168,22 @@ function CashierContent() {
       setTo("");
       refresh();
     });
+  }
+
+  // Только источник адреса: MetaMask ничего не подписывает, выплата идёт со смарт-аккаунта gasless.
+  async function onPickAddress() {
+    const provider = getInjectedProvider();
+    if (!provider) return;
+    setPicking(true);
+    try {
+      const addr = await requestAccount(provider);
+      setTo(addr);
+    } catch (e) {
+      if (errorCode(e) === USER_REJECTED) toast.error("Отклонено в кошельке");
+      else toast.error(injectedMessage(e));
+    } finally {
+      setPicking(false);
+    }
   }
 
   async function copyAddress() {
@@ -183,35 +252,56 @@ function CashierContent() {
 
             <div className="flex flex-col gap-3">
               <Label>Со своего кошелька</Label>
-              {address ? (
-                <>
-                  <div className="flex items-center gap-3">
-                    <div className="shrink-0 rounded-lg bg-white p-2">
-                      <QRCodeSVG value={address} size={96} marginSize={0} />
-                    </div>
-                    <div className="flex min-w-0 flex-col gap-2">
-                      <span
-                        className="break-all font-mono text-xs text-muted-foreground"
-                        title={address}
-                      >
-                        {address}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="w-fit"
-                        onClick={copyAddress}
-                      >
-                        {copied ? "Скопировано" : "Копировать адрес"}
-                      </Button>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Отправь на этот адрес тестовый ETH сети Base Sepolia из MetaMask или с биржи —
-                    зачислится на «Счёт казино».
-                  </p>
-                </>
+
+              {hasProvider ? (
+                <div className="flex gap-2">
+                  <Input
+                    inputMode="decimal"
+                    placeholder="0.01"
+                    aria-label="Сумма пополнения, ETH"
+                    value={depositAmount}
+                    onChange={(e) => setDepositAmount(e.target.value)}
+                    disabled={depositing}
+                  />
+                  <Button
+                    className="h-10 shrink-0"
+                    disabled={depositing}
+                    onClick={onDepositFromWallet}
+                  >
+                    {depositing ? "Открываем…" : "Пополнить из кошелька"}
+                  </Button>
+                </div>
               ) : null}
+
+              {address ? (
+                <div className="flex items-center gap-3">
+                  <div className="shrink-0 rounded-lg bg-white p-2">
+                    <QRCodeSVG value={address} size={92} marginSize={0} />
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <span
+                      className="break-all font-mono text-xs text-muted-foreground"
+                      title={address}
+                    >
+                      {address}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="w-fit"
+                      onClick={copyAddress}
+                    >
+                      {copied ? "Скопировано" : "Копировать адрес"}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              <p className="text-xs text-muted-foreground">
+                {hasProvider
+                  ? "«Пополнить из кошелька» откроет MetaMask с подставленными адресом и суммой (газ платит кошелёк). Или отправь Base Sepolia ETH на адрес сам."
+                  : "Нет MetaMask — отправь тестовый ETH сети Base Sepolia на этот адрес вручную (или установи MetaMask)."}
+              </p>
             </div>
           </div>
         </TabsContent>
@@ -226,6 +316,18 @@ function CashierContent() {
               value={to}
               onChange={(e) => setTo(e.target.value)}
             />
+            {hasProvider ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="w-fit"
+                disabled={picking}
+                onClick={onPickAddress}
+              >
+                {picking ? "Открываем…" : "Взять адрес из кошелька"}
+              </Button>
+            ) : null}
+
             <Label htmlFor="wd-amount" className="mt-1">
               Сумма, ETH
             </Label>
@@ -246,8 +348,8 @@ function CashierContent() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Отправим тестовый ETH на твой адрес, газ оплачивает казино. Доступно:{" "}
-              {formatEth(total)} ETH.
+              Выплата идёт со «Счёта казино», газ оплачивает казино — MetaMask тут только источник
+              адреса. Доступно: {formatEth(total)} ETH.
             </p>
           </div>
         </TabsContent>
