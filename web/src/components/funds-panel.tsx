@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { prepareContractCall } from "thirdweb";
+import { prepareContractCall, prepareTransaction } from "thirdweb";
 import { useActiveAccount, useWalletBalance } from "thirdweb/react";
+import { isAddress } from "thirdweb/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import { formatEth, parseEth, tryParseEth } from "@/lib/format";
 
 const FAUCET_AMOUNT = parseEth("0.005");
 
-/** Панель средств: игровой баланс в контракте + кран → депозит → вывод. */
+/** Панель средств: игровой баланс в контракте + кран → депозит → вывод → отправка на внешний адрес. */
 export function FundsPanel() {
   const account = useActiveAccount();
   const address = account?.address;
@@ -26,6 +27,8 @@ export function FundsPanel() {
 
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [sendTo, setSendTo] = useState("");
+  const [sendAmount, setSendAmount] = useState("");
 
   if (!address) return null;
 
@@ -77,16 +80,40 @@ export function FundsPanel() {
     });
   }
 
+  // Отправка нативного ETH со встроенного кошелька (смарт-аккаунта) на любой внешний адрес.
+  // Закрывает «как забрать деньги на свой кошелёк»: газ оплачивает пэймастер (gasless),
+  // поэтому можно отправить вплоть до всего баланса кошелька.
+  function onSendExternal() {
+    const value = tryParseEth(sendAmount);
+    if (value <= 0n || !isAddress(sendTo)) return;
+    const tx = prepareTransaction({
+      client,
+      chain,
+      to: sendTo as `0x${string}`,
+      value,
+    });
+    void send(tx, "Отправка", () => {
+      setSendAmount("");
+      setSendTo("");
+      refresh();
+    });
+  }
+
   const depositWei = tryParseEth(depositAmount);
   const withdrawWei = tryParseEth(withdrawAmount);
+  const sendWei = tryParseEth(sendAmount);
   const depositInvalid =
     depositWei <= 0n || (walletWei !== undefined && depositWei > walletWei);
   const withdrawInvalid =
     withdrawWei <= 0n || (gameBal !== undefined && withdrawWei > gameBal);
+  const sendInvalid =
+    !isAddress(sendTo) ||
+    sendWei <= 0n ||
+    (walletWei !== undefined && sendWei > walletWei);
 
   const faucetLabel =
     claimed === true
-      ? "Кран уже использован"
+      ? "Тестовый ETH уже получен с этого адреса"
       : pool !== undefined && pool < FAUCET_AMOUNT
         ? "Кран пуст"
         : "Получить 0.005 ETH";
@@ -106,8 +133,7 @@ export function FundsPanel() {
           <span className="text-sm text-muted-foreground">ETH</span>
         </div>
         <p className="text-xs text-muted-foreground">
-          На кошельке: {formatEth(walletWei)} ETH · В кране:{" "}
-          {formatEth(pool)} ETH
+          На кошельке: {formatEth(walletWei)} ETH · В кране: {formatEth(pool)} ETH
         </p>
       </CardHeader>
 
@@ -115,11 +141,7 @@ export function FundsPanel() {
         {/* Кран */}
         <div className="flex flex-col gap-2">
           <Label>Бесплатный тестовый ETH</Label>
-          <Button
-            className="h-10"
-            disabled={faucetDisabled}
-            onClick={onFaucet}
-          >
+          <Button className="h-10" disabled={faucetDisabled} onClick={onFaucet}>
             {faucetLabel}
           </Button>
         </div>
@@ -147,9 +169,9 @@ export function FundsPanel() {
           </div>
         </div>
 
-        {/* Вывод */}
+        {/* Вывод из игры на кошелёк */}
         <div className="flex flex-col gap-2">
-          <Label htmlFor="withdraw">Вывести на кошелёк</Label>
+          <Label htmlFor="withdraw">Вывести из игры на кошелёк</Label>
           <div className="flex gap-2">
             <Input
               id="withdraw"
@@ -167,6 +189,39 @@ export function FundsPanel() {
               Вывести
             </Button>
           </div>
+        </div>
+
+        <div className="h-px bg-border" />
+
+        {/* Отправка с кошелька на внешний адрес */}
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="send-to">Отправить на внешний кошелёк</Label>
+          <Input
+            id="send-to"
+            placeholder="0x… твой MetaMask или биржа"
+            value={sendTo}
+            onChange={(e) => setSendTo(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <Input
+              id="send-amount"
+              inputMode="decimal"
+              placeholder="0.005"
+              value={sendAmount}
+              onChange={(e) => setSendAmount(e.target.value)}
+            />
+            <Button
+              variant="outline"
+              className="h-10 shrink-0"
+              disabled={isPending || sendInvalid}
+              onClick={onSendExternal}
+            >
+              Отправить
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Со встроенного кошелька на любой свой адрес — газ оплачивает казино.
+          </p>
         </div>
       </CardContent>
     </Card>
