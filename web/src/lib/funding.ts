@@ -56,6 +56,23 @@ export async function readFaucet(
   return { claimed, pool };
 }
 
+/**
+ * Статус ставки по seq: рассчитана ли (`settled`) и когда запрошена (`requestedAt`, сек).
+ * Нужен для возврата зависшей ставки: контракт допускает refundStuckBet через STUCK_TIMEOUT (1 ч).
+ * Порядок полей сверен с ABI getter'а `bets`: [player, stake, target, potentialPayout, settled, requestedAt].
+ */
+export async function readBetStatus(
+  seq: bigint,
+): Promise<{ settled: boolean; requestedAt: bigint }> {
+  const bet = await readContract({
+    contract: casino,
+    method:
+      "function bets(uint64) view returns (address player, uint256 stake, uint256 target, uint256 potentialPayout, bool settled, uint64 requestedAt)",
+    params: [seq],
+  });
+  return { settled: bet[4], requestedAt: bet[5] };
+}
+
 // ============================================================
 // Строители транзакций (плумбинг «Счёта казино» — пользователю невидим)
 // ============================================================
@@ -96,6 +113,17 @@ export const claimFaucetTx = (): PreparedTransaction =>
     contract: casino,
     method: "function claimFaucet()",
     params: [],
+  });
+
+/**
+ * Вернуть зависшую ставку (страховка контракта): permissionless, доступно через STUCK_TIMEOUT (1 ч),
+ * если колбэк Pyth так и не пришёл. Ставка возвращается на «Счёт казино», резерв — обратно в банк.
+ */
+export const refundStuckBetTx = (seq: bigint): PreparedTransaction =>
+  prepareContractCall({
+    contract: casino,
+    method: "function refundStuckBet(uint64)",
+    params: [seq],
   });
 
 /** Нативный перевод ETH на внешний адрес (вывод «на свой кошелёк»). */

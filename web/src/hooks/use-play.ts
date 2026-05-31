@@ -49,18 +49,25 @@ async function ensureFunded(account: Account, need: bigint): Promise<boolean> {
  * Не вошёл → открываем email-вход (возвращается смарт-аккаунт, gasless) → авто-кран при нуле → ставка.
  * Уже вошёл → авто-кран при нуле → ставка. Все шаги безгазовые и без лишних подтверждений.
  */
-export function usePlay(onSettled?: (result: SettledResult) => void) {
+export function usePlay(
+  onSettled?: (result: SettledResult) => void,
+  onRefunded?: () => void,
+) {
   const active = useActiveAccount();
   const { connect } = useConnectModal();
-  const { phase, result, place, reset } = usePlaceBet(onSettled);
+  const { phase, result, pending, canRefund, actionBusy, place, refresh, refund, reset } =
+    usePlaceBet(onSettled, onRefunded);
   const [preparing, setPreparing] = useState(false);
   // Синхронный гард двойной отправки: реактивный `busy`/disabled не закрывает двойной клик
   // за один тик до ре-рендера (риск гонки nonce). Выставляем ДО первого await, снимаем в finally.
   const inFlight = useRef(false);
+  // Последняя ставка — для «Повторить» после сбоя отправки.
+  const lastArgs = useRef<{ target: bigint; stake: bigint } | null>(null);
 
   async function play(target: bigint, stake: bigint) {
     if (inFlight.current) return;
     inFlight.current = true;
+    lastArgs.current = { target, stake };
     try {
       let account = active;
 
@@ -91,6 +98,28 @@ export function usePlay(onSettled?: (result: SettledResult) => void) {
     }
   }
 
-  const busy = preparing || phase === "submitting" || phase === "waiting";
-  return { play, phase, result, reset, busy, preparing, isConnected: !!active };
+  /** Повторить последнюю ставку после сбоя отправки (состояние «error»). */
+  function retry() {
+    const a = lastArgs.current;
+    if (a) void play(a.target, a.stake);
+  }
+
+  const busy =
+    preparing || phase === "submitting" || phase === "waiting" || phase === "delayed";
+
+  return {
+    play,
+    retry,
+    refresh,
+    refund,
+    reset,
+    phase,
+    result,
+    pending,
+    canRefund,
+    actionBusy,
+    busy,
+    preparing,
+    isConnected: !!active,
+  };
 }

@@ -1,4 +1,7 @@
 import { getContractEvents, prepareEvent } from "thirdweb";
+import { eth_blockNumber, getRpcClient } from "thirdweb/rpc";
+import { chain } from "./chain";
+import { client } from "./client";
 import { casino } from "./contract";
 import { entropy } from "./entropy";
 
@@ -32,36 +35,71 @@ export type SettledResult = SettledArgs & {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Ждать колбэк Pyth (BetSettled) по нашему sequenceNumber.
- * Polling getContractEvents от блока ставки + фильтр по seq в JS — надёжнее topic-фильтра по uint64 indexed.
- * Бросает по таймауту: ставку тогда можно вернуть через refundStuckBet (страховка контракта).
+ * Один опрос BetSettled по seq в окне ≤1000 блоков у головы цепи (предел RPC eth_getLogs).
+ * Окно скользит к голове: колбэк приходит за секунды (попадает в первое же окно у блока ставки),
+ * а на длинной дистанции зависшей ставки искать нечего. Ошибки RPC глушим → null (опрос продолжится).
+ */
+export async function findSettledBySeq(
+  seq: bigint,
+  fromBlock: bigint,
+): Promise<SettledResult | null> {
+  try {
+    const rpc = getRpcClient({ client, chain });
+    const head = await eth_blockNumber(rpc);
+    const from = head - fromBlock > 999n ? head - 999n : fromBlock;
+    const events = await getContractEvents({
+      contract: casino,
+      events: [betSettledEvent],
+      fromBlock: from,
+      toBlock: head,
+      useIndexer: false, // прямой RPC: Insight у thirdweb домен-ограничен (на боевом домене 401)
+    });
+    const match = events.find((e) => e.args.sequenceNumber === seq);
+    if (!match) return null;
+    return {
+      ...(match.args as unknown as SettledArgs),
+      settledTxHash: match.transactionHash ?? "",
+      settledBlock: match.blockNumber ?? fromBlock,
+    };
+  } catch {
+    return null; // транзиентная ошибка RPC — следующий опрос повторит
+  }
+}
+
+export type WaitOptions = {
+  /** Вызывается ОДИН раз, когда ожидание превысило мягкий порог (ставка идёт дольше обычного). */
+  onSlow?: () => void;
+  slowAfterMs?: number;
+  pollMs?: number;
+  slowPollMs?: number;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ждать колбэк Pyth (BetSettled) по нашему sequenceNumber. Опрос идёт до результата или до отмены
+ * (`signal`) — хард-таймаута НЕТ: зависшую ставку возвращают через refundStuckBet, а не молчаливым
+ * сбросом в «1.00». `onSlow` срабатывает один раз после мягкого порога — UI переходит в «идёт дольше
+ * обычного» (seq + ссылка + «Обновить»), но фоновый опрос продолжается и подхватит результат сам.
  */
 export async function waitForSettlement(
   seq: bigint,
   fromBlock: bigint,
-  timeoutMs = 120_000,
-): Promise<SettledResult> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const events = await getContractEvents({
-      contract: casino,
-      events: [betSettledEvent],
-      fromBlock,
-      useIndexer: false, // прямой RPC: Insight у thirdweb домен-ограничен (на preview-деплоях 401), окно мелкое
-    });
-    const match = events.find((e) => e.args.sequenceNumber === seq);
-    if (match) {
-      return {
-        ...(match.args as unknown as SettledArgs),
-        settledTxHash: match.transactionHash ?? "",
-        settledBlock: match.blockNumber ?? fromBlock,
-      };
+  opts: WaitOptions = {},
+): Promise<SettledResult | null> {
+  const { onSlow, slowAfterMs = 45_000, pollMs = 2500, slowPollMs = 6000, signal } = opts;
+  const start = Date.now();
+  let slowFired = false;
+  while (!signal?.aborted) {
+    const found = await findSettledBySeq(seq, fromBlock);
+    if (found) return found;
+    if (!slowFired && Date.now() - start >= slowAfterMs) {
+      slowFired = true;
+      onSlow?.();
     }
-    await sleep(2500);
+    if (signal?.aborted) break;
+    await sleep(slowFired ? slowPollMs : pollMs);
   }
-  throw new Error(
-    "Pyth не прислал результат вовремя. Ставку можно вернуть позже (refundStuckBet).",
-  );
+  return null; // отменено (reset/refund/размонтирование)
 }
 
 // ============================================================

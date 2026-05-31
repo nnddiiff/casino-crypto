@@ -15,20 +15,36 @@ export function GameScreen() {
   const { bets, prepend } = useRecentBetsContext();
   const { setLastBet } = useLastBet();
 
-  const { play, phase, result, busy, preparing, isConnected } = usePlay((settled) => {
-    reads.refetchAll();
-    prepend({
-      seq: settled.sequenceNumber,
-      player: settled.player,
-      resultMultiplier: settled.resultMultiplier,
-      target: settled.target,
-      won: settled.won,
-      payout: settled.payout,
-      txHash: settled.settledTxHash,
-      block: settled.settledBlock,
-    });
-    setLastBet({ seq: settled.sequenceNumber, block: settled.settledBlock });
-  });
+  const {
+    play,
+    retry,
+    refresh,
+    refund,
+    phase,
+    result,
+    pending,
+    canRefund,
+    actionBusy,
+    busy,
+    preparing,
+    isConnected,
+  } = usePlay(
+    (settled) => {
+      reads.refetchAll();
+      prepend({
+        seq: settled.sequenceNumber,
+        player: settled.player,
+        resultMultiplier: settled.resultMultiplier,
+        target: settled.target,
+        won: settled.won,
+        payout: settled.payout,
+        txHash: settled.settledTxHash,
+        block: settled.settledBlock,
+      });
+      setLastBet({ seq: settled.sequenceNumber, block: settled.settledBlock });
+    },
+    () => reads.refetchAll(),
+  );
 
   const primaryLabel = !isConnected
     ? "Войти и сыграть"
@@ -36,7 +52,7 @@ export function GameScreen() {
       ? "Готовим…"
       : phase === "submitting"
         ? "Отправляем…"
-        : phase === "waiting"
+        : phase === "waiting" || phase === "delayed"
           ? "Ждём результат…"
           : "Сыграть";
 
@@ -54,7 +70,17 @@ export function GameScreen() {
         primaryLabel={primaryLabel}
         onPlay={(t, s) => void play(t, s)}
       />
-      <MultiplierStage phase={phase} result={result} recent={bets} />
+      <MultiplierStage
+        phase={phase}
+        result={result}
+        recent={bets}
+        pending={pending}
+        canRefund={canRefund}
+        actionBusy={actionBusy}
+        onRetry={retry}
+        onRefresh={refresh}
+        onRefund={refund}
+      />
     </div>
   );
 }

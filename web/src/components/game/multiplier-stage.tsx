@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
-import type { BetPhase, BetResult } from "@/hooks/use-place-bet";
+import type { BetPhase, BetResult, PendingBet } from "@/hooks/use-place-bet";
 import type { RecentBet } from "@/hooks/use-recent-bets";
 import { addressUrl, txUrl } from "@/lib/constants";
 import { casino } from "@/lib/contract";
@@ -11,16 +11,30 @@ import { cn } from "@/lib/utils";
 
 const easeOut = (x: number) => 1 - (1 - x) ** 3;
 
-/** Правая колонка экрана игры (Stake-канон): лента исходов сверху + крупный множитель + статус. */
+type StageProps = {
+  phase: BetPhase;
+  result: BetResult;
+  recent: RecentBet[];
+  pending: PendingBet | null;
+  canRefund: boolean;
+  actionBusy: boolean;
+  onRetry: () => void;
+  onRefresh: () => void;
+  onRefund: () => void;
+};
+
+/** Правая колонка экрана игры (Stake-канон): лента исходов сверху + крупный множитель + статус/развилки. */
 export function MultiplierStage({
   phase,
   result,
   recent,
-}: {
-  phase: BetPhase;
-  result: BetResult;
-  recent: RecentBet[];
-}) {
+  pending,
+  canRefund,
+  actionBusy,
+  onRetry,
+  onRefresh,
+  onRefund,
+}: StageProps) {
   return (
     <Card className="flex min-h-[360px] flex-1 flex-col justify-between gap-0 py-0 sm:min-h-[440px]">
       <div className="flex items-center gap-1.5 overflow-x-auto px-4 py-3">
@@ -38,7 +52,16 @@ export function MultiplierStage({
       </div>
 
       <div className="px-4 pb-5 pt-2 text-center">
-        <StatusLine phase={phase} result={result} />
+        <StatusLine
+          phase={phase}
+          result={result}
+          pending={pending}
+          canRefund={canRefund}
+          actionBusy={actionBusy}
+          onRetry={onRetry}
+          onRefresh={onRefresh}
+          onRefund={onRefund}
+        />
       </div>
     </Card>
   );
@@ -67,19 +90,11 @@ function ResultPill({ bet }: { bet: RecentBet }) {
 
 function BigMultiplier({ phase, result }: { phase: BetPhase; result: BetResult }) {
   const [display, setDisplay] = useState("1.00");
-  const busy = phase === "submitting" || phase === "waiting";
+  // Спокойное ожидание: НИКАКОЙ случайной крутки. Число держится на «1.00» и слегка пульсирует.
+  const pendingPhase =
+    phase === "submitting" || phase === "waiting" || phase === "delayed";
 
   useEffect(() => {
-    if (phase === "idle") {
-      setDisplay("1.00");
-      return;
-    }
-    if (busy) {
-      const id = setInterval(() => {
-        setDisplay((1 + Math.random() * 9).toFixed(2));
-      }, 70);
-      return () => clearInterval(id);
-    }
     if (phase === "result" && result) {
       // «Прокрут вверх и замирание»: count-up от 1.00 к выпавшему множителю.
       const final = Number(result.resultMultiplier) / 1_000_000;
@@ -96,7 +111,8 @@ function BigMultiplier({ phase, result }: { phase: BetPhase; result: BetResult }
       raf = requestAnimationFrame(tick);
       return () => cancelAnimationFrame(raf);
     }
-  }, [phase, busy, result]);
+    setDisplay("1.00");
+  }, [phase, result]);
 
   const won = phase === "result" && result?.won;
   const lost = phase === "result" && result && !result.won;
@@ -109,7 +125,7 @@ function BigMultiplier({ phase, result }: { phase: BetPhase; result: BetResult }
         lost && "text-destructive",
         !won && !lost && "text-foreground",
         phase === "result" && "scale-105",
-        phase === "waiting" && "animate-pulse",
+        pendingPhase && "animate-pulse",
       )}
     >
       <span className="text-7xl sm:text-8xl">{display}</span>
@@ -118,15 +134,98 @@ function BigMultiplier({ phase, result }: { phase: BetPhase; result: BetResult }
   );
 }
 
-function StatusLine({ phase, result }: { phase: BetPhase; result: BetResult }) {
+function Spinner() {
+  return (
+    <span
+      className="inline-block size-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary align-[-2px]"
+      aria-hidden="true"
+    />
+  );
+}
+
+function StatusLine({
+  phase,
+  result,
+  pending,
+  canRefund,
+  actionBusy,
+  onRetry,
+  onRefresh,
+  onRefund,
+}: Omit<StageProps, "recent">) {
   if (phase === "submitting") {
-    return <p className="text-sm text-muted-foreground">Отправляем ставку…</p>;
+    return (
+      <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Spinner /> Отправляем ставку…
+      </p>
+    );
   }
   if (phase === "waiting") {
     return (
-      <p className="text-sm text-muted-foreground">
-        Pyth Entropy определяет результат…
+      <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Spinner /> Ждём результат от Pyth Entropy…
       </p>
+    );
+  }
+  if (phase === "delayed") {
+    return (
+      <div className="flex flex-col items-center gap-2">
+        <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Spinner /> Идёт дольше обычного
+        </p>
+        <p className="max-w-xs text-xs text-muted-foreground">
+          {pending
+            ? `Ставка #${pending.seq.toString()} уже в блокчейне и появится автоматически.`
+            : "Ставка уже в блокчейне и появится автоматически."}
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
+          {pending?.submitTx ? (
+            <a
+              href={txUrl(pending.submitTx)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              Открыть в Basescan
+            </a>
+          ) : null}
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={actionBusy}
+            className="rounded-md border border-border px-2.5 py-1 transition-colors hover:border-primary/50 disabled:opacity-40"
+          >
+            Обновить
+          </button>
+          {canRefund ? (
+            <button
+              type="button"
+              onClick={onRefund}
+              disabled={actionBusy}
+              className="rounded-md border border-amber-500/40 px-2.5 py-1 text-amber-400 transition-colors hover:border-amber-500 disabled:opacity-40"
+            >
+              Вернуть ставку
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+  if (phase === "error") {
+    return (
+      <div className="flex flex-col items-center gap-2">
+        <p className="text-sm font-medium text-destructive">Не удалось отправить ставку</p>
+        <p className="max-w-xs text-xs text-muted-foreground">
+          Проверь соединение и попробуй снова — деньги не списаны.
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-md border border-border px-3 py-1 text-xs transition-colors hover:border-primary/50"
+        >
+          Повторить
+        </button>
+      </div>
     );
   }
   if (phase === "result" && result) {
