@@ -3,6 +3,7 @@
 import { useActiveAccount } from "thirdweb/react";
 import { useAccount } from "@/hooks/use-account";
 import { formatEth } from "@/lib/format";
+import { CashierButton } from "./cashier-dialog";
 import { ConnectWallet } from "./connect-wallet";
 
 /** Шапка: логотип + единый «Счёт казино» (после входа) + кнопка входа/аккаунта. */
@@ -19,7 +20,7 @@ export function Header() {
           · честное казино on-chain
         </span>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         {active ? (
           <div className="hidden flex-col items-end leading-tight sm:flex">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -30,6 +31,7 @@ export function Header() {
             </span>
           </div>
         ) : null}
+        <CashierButton />
         <ConnectWallet />
       </div>
     </header>

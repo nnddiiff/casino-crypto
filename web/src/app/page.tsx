@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Cashier } from "@/components/cashier";
 import { GameScreen } from "@/components/game/game-screen";
 import { Header } from "@/components/header";
 import { LastBetProvider } from "@/components/last-bet-context";
@@ -40,7 +39,6 @@ export default function Home() {
         <Header />
         <main className="flex flex-1 flex-col items-center gap-8 px-3 py-6 sm:px-4 sm:py-10">
           <GameScreen />
-          <Cashier />
           <Showcase />
         </main>
         <SiteFooter />
