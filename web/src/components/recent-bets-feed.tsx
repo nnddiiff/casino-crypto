@@ -16,7 +16,7 @@ export function RecentBetsFeed() {
   const { bets } = useRecentBetsContext();
 
   return (
-    <Card className="w-full max-w-5xl">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle>Лента ставок</CardTitle>
         <p className="text-xs text-muted-foreground">

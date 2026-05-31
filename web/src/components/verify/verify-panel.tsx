@@ -58,7 +58,7 @@ export function VerifyPanel() {
   })();
 
   return (
-    <Card className="w-full max-w-2xl">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle>Проверка честности ставки</CardTitle>
         <p className="text-xs text-muted-foreground">

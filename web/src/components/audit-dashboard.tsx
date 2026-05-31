@@ -18,7 +18,8 @@ function Metric({
   subtle?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-0.5">
+    // Одинаковая min-height на каждой ячейке: подписи разной длины (1 vs 2 строки) не ломают строки grid.
+    <div className="flex min-h-[5.5rem] flex-col gap-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span
         className={cn(
@@ -65,7 +66,7 @@ export function AuditDashboard() {
       : undefined;
 
   return (
-    <Card className="w-full max-w-2xl">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle>Самоаудит казино</CardTitle>
         <p className="text-xs text-muted-foreground">

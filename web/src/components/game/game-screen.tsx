@@ -57,7 +57,7 @@ export function GameScreen() {
           : "Сыграть";
 
   return (
-    <div className="flex w-full max-w-5xl flex-col-reverse gap-3 lg:flex-row lg:items-stretch">
+    <div className="flex w-full flex-col-reverse gap-3 lg:flex-row lg:items-stretch">
       <BetPanel
         account={{
           total: reads.total,

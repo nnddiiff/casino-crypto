@@ -37,9 +37,12 @@ export default function Home() {
     <LastBetProvider>
       <RecentBetsProvider>
         <Header />
-        <main className="flex flex-1 flex-col items-center gap-8 px-3 py-6 sm:px-4 sm:py-10">
-          <GameScreen />
-          <Showcase />
+        <main className="flex flex-1 flex-col px-4 py-6 sm:py-10">
+          {/* Один контейнер задаёт ширину и края всем секциям → левые/правые края на одной вертикали. */}
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
+            <GameScreen />
+            <Showcase />
+          </div>
         </main>
         <SiteFooter />
       </RecentBetsProvider>
