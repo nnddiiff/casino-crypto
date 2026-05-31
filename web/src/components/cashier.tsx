@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useActiveAccount } from "thirdweb/react";
 import { isAddress } from "thirdweb/utils";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,8 +15,11 @@ import { formatEth, tryParseEth } from "@/lib/format";
 import { buildWithdrawBatch, claimFaucetTx } from "@/lib/funding";
 
 /**
- * Касса: пополнение счёта (бесплатный кран) и вывод на внешний адрес. Депозит из кошелька в игру
- * происходит автоматически на ставку, поэтому в кассе его нет — для игрока это один «Счёт казино».
+ * Касса: пополнение (бесплатный кран ИЛИ перевод со своего кошелька на адрес счёта) и вывод
+ * на внешний адрес. Депозит из кошелька в игру происходит автоматически на ставку — здесь его нет.
+ * Пополнение «со своего кошелька»: показываем адрес смарт-аккаунта, игрок сам шлёт на него тестовый
+ * ETH из MetaMask/биржи (нативный перевод → зачисляется на «Счёт казино»). Это закрывает букву брифа
+ * «внести своим кошельком» без подключения внешнего кошелька к сайту.
  */
 export function Cashier() {
   const active = useActiveAccount();
@@ -24,8 +28,10 @@ export function Cashier() {
 
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const connected = !!active;
+  const address = active?.address;
   const total = reads.total;
   const walletBal = reads.walletBalance;
 
@@ -47,6 +53,17 @@ export function Cashier() {
     });
   }
 
+  async function copyAddress() {
+    if (!address) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Не удалось скопировать адрес");
+    }
+  }
+
   const amountWei = tryParseEth(amount);
   const withdrawInvalid =
     !connected ||
@@ -56,12 +73,12 @@ export function Cashier() {
     amountWei > total;
 
   const faucetLabel = !connected
-    ? "Пополнить счёт · 0.005 ETH"
+    ? "Бесплатный ETH · 0.005"
     : reads.faucetClaimed === true
       ? "Бесплатный ETH уже получен"
       : reads.faucetPool !== undefined && reads.faucetPool < FAUCET_AMOUNT
         ? "Кран пуст"
-        : "Пополнить счёт · 0.005 ETH бесплатно";
+        : "Получить бесплатно · 0.005 ETH";
   const faucetDisabled =
     !connected ||
     isPending ||
@@ -74,21 +91,56 @@ export function Cashier() {
         <CardTitle>Касса</CardTitle>
         <p className="text-xs text-muted-foreground">
           {connected
-            ? "Пополняй счёт бесплатным тестовым ETH и выводи на любой свой адрес — газ оплачивает казино."
+            ? "Пополняй счёт бесплатным краном или переводом со своего кошелька, выводи на любой свой адрес."
             : "Войди по email, чтобы пополнить «Счёт казино» и выводить средства на свой кошелёк."}
         </p>
       </CardHeader>
-      <CardContent className="grid gap-5 sm:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <Label>Пополнить счёт</Label>
-          <Button className="h-10" disabled={faucetDisabled} onClick={onFaucet}>
-            {faucetLabel}
-          </Button>
-          <p className="text-xs text-muted-foreground">
-            Бесплатный тестовый ETH из крана. Один раз на аккаунт.
-          </p>
+      <CardContent className="grid gap-6 sm:grid-cols-2">
+        {/* Пополнение */}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label>Пополнить бесплатно (кран)</Label>
+            <Button className="h-10" disabled={faucetDisabled} onClick={onFaucet}>
+              {faucetLabel}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Тестовый ETH из крана. Один раз на аккаунт.
+            </p>
+          </div>
+
+          <div className="h-px bg-border" />
+
+          <div className="flex flex-col gap-2">
+            <Label>Пополнить со своего кошелька</Label>
+            {connected && address ? (
+              <>
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2">
+                  <span className="flex-1 truncate font-mono text-xs" title={address}>
+                    {address}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="shrink-0"
+                    onClick={copyAddress}
+                  >
+                    {copied ? "Скопировано" : "Копировать"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Отправь на этот адрес тестовый ETH сети Base Sepolia из MetaMask или с биржи —
+                  зачислится на твой «Счёт казино».
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Войди, чтобы увидеть адрес для пополнения.
+              </p>
+            )}
+          </div>
         </div>
 
+        {/* Вывод */}
         <div className="flex flex-col gap-2">
           <Label htmlFor="wd-to">Вывести на свой кошелёк</Label>
           <Input
