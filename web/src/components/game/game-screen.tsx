@@ -47,6 +47,7 @@ export function GameScreen() {
           total: reads.total,
           fee: reads.entropyFee,
           faucetClaimed: reads.faucetClaimed,
+          casinoBank: reads.casinoBank,
         }}
         isConnected={isConnected}
         busy={busy}

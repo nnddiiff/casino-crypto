@@ -22,9 +22,13 @@ type AccountView = {
   total?: bigint;
   fee?: bigint;
   faucetClaimed?: boolean;
+  casinoBank?: bigint;
 };
 
-/** Левая панель ставки (Stake-канон): сумма + ½/2×, целевой множитель, шанс/выплата, «Сыграть». */
+const AMOUNT_CHIPS = ["0.001", "0.005", "0.01"];
+const TARGET_CHIPS = ["1.5", "2", "5", "10"];
+
+/** Левая панель ставки (Stake-канон): сумма + чипы/½/2×, целевой множитель + чипы, шанс/выплата, «Сыграть». */
 export function BetPanel({
   account,
   isConnected,
@@ -52,20 +56,35 @@ export function BetPanel({
   const stakeFormatValid = stakeWei >= MIN_BET;
 
   const fee = account.fee ?? 0n;
-  const maxStakeWei =
+  // Предел по балансу: весь «Счёт казино» минус комиссия Pyth.
+  const balanceMax =
     account.total !== undefined && account.fee !== undefined
       ? account.total > fee
         ? account.total - fee
         : 0n
       : undefined;
+  // Предел по банку казино: выплата stake·T не может превысить банк → stake ≤ bank·SCALE/(T−SCALE).
+  const bankMax =
+    account.casinoBank !== undefined && targetValid && targetFixed > TARGET_SCALE
+      ? (account.casinoBank * TARGET_SCALE) / (targetFixed - TARGET_SCALE)
+      : undefined;
 
+  const maxStake =
+    balanceMax !== undefined && bankMax !== undefined
+      ? balanceMax < bankMax
+        ? balanceMax
+        : bankMax
+      : (balanceMax ?? bankMax);
+
+  const overBank = bankMax !== undefined && stakeWei > bankMax;
   const affordable =
-    !isConnected || maxStakeWei === undefined || stakeWei <= maxStakeWei;
+    !isConnected || balanceMax === undefined || stakeWei <= balanceMax;
   const canAutoFaucet = isConnected && account.faucetClaimed === false;
   const canPlay =
     !busy &&
     targetValid &&
     stakeFormatValid &&
+    !overBank &&
     (!isConnected || affordable || canAutoFaucet);
 
   const chance = targetValid ? winChancePct(targetFixed) : 0;
@@ -74,17 +93,19 @@ export function BetPanel({
       ? formatEth((stakeWei * targetFixed) / TARGET_SCALE)
       : "—";
 
+  function clampToMax(value: bigint): bigint {
+    return maxStake !== undefined && maxStake > 0n && value > maxStake
+      ? maxStake
+      : value;
+  }
   function half() {
     if (stakeWei > 0n) setStake(toEthInput(stakeWei / 2n));
   }
   function double() {
-    if (stakeWei <= 0n) return;
-    const doubled = stakeWei * 2n;
-    const capped =
-      maxStakeWei !== undefined && doubled > maxStakeWei && maxStakeWei > 0n
-        ? maxStakeWei
-        : doubled;
-    setStake(toEthInput(capped));
+    if (stakeWei > 0n) setStake(toEthInput(clampToMax(stakeWei * 2n)));
+  }
+  function setMax() {
+    if (maxStake !== undefined && maxStake > 0n) setStake(toEthInput(maxStake));
   }
 
   const hint = (() => {
@@ -92,8 +113,10 @@ export function BetPanel({
       return { text: "Множитель от 1.01 до 10000×", danger: true };
     if (stakeWei > 0n && !stakeFormatValid)
       return { text: "Минимальная ставка 0.00001 ETH", danger: true };
+    if (overBank && bankMax !== undefined)
+      return { text: `Макс. ставка по банку: ${formatEth(bankMax)} ETH`, danger: true };
     if (isConnected && !affordable && !canAutoFaucet)
-      return { text: "Не хватает на счёте — пополни в «Кассе» ниже", danger: false };
+      return { text: "Не хватает на счёте — пополни в «Кассе»", danger: false };
     if (!isConnected)
       return {
         text: "Вход по email · дадим бесплатный тестовый ETH · без газа",
@@ -122,22 +145,22 @@ export function BetPanel({
               onChange={(e) => setStake(e.target.value)}
               disabled={busy}
             />
-            <Button
-              variant="secondary"
-              className="shrink-0 px-3"
-              disabled={busy}
-              onClick={half}
-            >
+            <Button variant="secondary" className="shrink-0 px-3" disabled={busy} onClick={half}>
               ½
             </Button>
-            <Button
-              variant="secondary"
-              className="shrink-0 px-3"
-              disabled={busy}
-              onClick={double}
-            >
+            <Button variant="secondary" className="shrink-0 px-3" disabled={busy} onClick={double}>
               2×
             </Button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {AMOUNT_CHIPS.map((v) => (
+              <Chip key={v} active={stake === v} disabled={busy} onClick={() => setStake(v)}>
+                {v}
+              </Chip>
+            ))}
+            <Chip disabled={busy || maxStake === undefined} onClick={setMax}>
+              Max
+            </Chip>
           </div>
         </div>
 
@@ -155,6 +178,18 @@ export function BetPanel({
             <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-muted-foreground">
               ×
             </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {TARGET_CHIPS.map((v) => (
+              <Chip
+                key={v}
+                active={target === v || target === `${v}.00`}
+                disabled={busy}
+                onClick={() => setTarget(v)}
+              >
+                {v}×
+              </Chip>
+            ))}
           </div>
         </div>
 
@@ -181,6 +216,34 @@ export function BetPanel({
         </p>
       </CardContent>
     </Card>
+  );
+}
+
+function Chip({
+  active,
+  disabled,
+  onClick,
+  children,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "rounded-md px-2.5 py-1 text-xs font-medium tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+        active
+          ? "bg-primary/15 text-primary"
+          : "bg-secondary text-muted-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_6%)] hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

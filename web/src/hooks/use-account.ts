@@ -43,6 +43,13 @@ export function useAccount(address?: string) {
     params: [],
   });
 
+  const casinoBank = useReadContract({
+    contract: casino,
+    method: "function casinoBank() view returns (uint256)",
+    params: [],
+    queryOptions: { refetchInterval: 12_000 },
+  });
+
   const gameBalance = game.data;
   const walletBalance = wallet.data?.value;
   const total =
@@ -64,6 +71,7 @@ export function useAccount(address?: string) {
     faucetClaimed: faucetClaimed.data,
     faucetPool: faucetPool.data,
     entropyFee: entropyFee.data,
+    casinoBank: casinoBank.data,
     refetchAll,
   };
 }
