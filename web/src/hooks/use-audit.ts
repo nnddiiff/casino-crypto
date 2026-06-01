@@ -3,7 +3,7 @@
 import { useReadContract } from "thirdweb/react";
 import { casino } from "@/lib/contract";
 
-const live = { queryOptions: { refetchInterval: 10_000 } } as const;
+const live = { queryOptions: { refetchInterval: 30_000 } } as const;
 
 /**
  * Публичные метрики казино для дашборда самоаудита. Все читаются on-chain без кошелька —

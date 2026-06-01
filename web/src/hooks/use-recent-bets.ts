@@ -116,7 +116,7 @@ export function useRecentBets(limit = 12) {
 
   useEffect(() => {
     void loadDeep();
-    const id = setInterval(() => void pollRecent(), 20_000);
+    const id = setInterval(() => void pollRecent(), 30_000);
     return () => clearInterval(id);
   }, [loadDeep, pollRecent]);
 

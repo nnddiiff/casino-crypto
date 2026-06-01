@@ -19,14 +19,16 @@ export function useAccount(address?: string) {
     contract: casino,
     method: "function balances(address) view returns (uint256)",
     params: [address ?? ZERO],
-    queryOptions: { enabled: !!address, refetchInterval: 8000 },
+    queryOptions: { enabled: !!address, refetchInterval: 20_000 },
   });
 
   // W (нативный ETH смарт-аккаунта) поллим тем же интервалом, что и G, — иначе внешнее пополнение
   // (перевод из MetaMask на адрес счёта) не видно без перезагрузки. enabled — чтения только после входа.
+  // Интервал увеличен (8→20 c): после своей ставки/вывода обновляем мгновенно через refetchAll,
+  // фоновый поллинг нужен лишь для ВНЕШНИХ изменений — там 20 c достаточно, а нагрузка на RPC втрое ниже.
   const wallet = useWalletBalance(
     { client, chain, address },
-    { enabled: !!address, refetchInterval: 8000 },
+    { enabled: !!address, refetchInterval: 20_000 },
   );
 
   const faucetClaimed = useReadContract({
@@ -52,7 +54,7 @@ export function useAccount(address?: string) {
     contract: casino,
     method: "function casinoBank() view returns (uint256)",
     params: [],
-    queryOptions: { refetchInterval: 12_000 },
+    queryOptions: { refetchInterval: 30_000 },
   });
 
   const gameBalance = game.data;
