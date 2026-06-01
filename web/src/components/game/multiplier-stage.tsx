@@ -11,14 +11,6 @@ import { cn } from "@/lib/utils";
 
 const easeOut = (x: number) => 1 - (1 - x) ** 3;
 
-/** Пользователь просит без анимаций — уважаем prefers-reduced-motion. */
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
-  );
-}
-
 type StageProps = {
   phase: BetPhase;
   result: BetResult;
@@ -99,42 +91,45 @@ function ResultPill({ bet }: { bet: RecentBet }) {
 /** Разгон во время ожидания: монотонный рост ВВЕРХ с ускорением (ease-in), без случайных скачков. */
 const SPIN_RATE = 0.85; // экспонента разгона (доли/сек)
 const SPIN_CAP = 50; // мягкий потолок — дальше медленный дрейф, не упор и не зависание
+const SPIN_CAP_TIME = Math.log(SPIN_CAP) / SPIN_RATE; // момент достижения потолка (сек)
 
 function BigMultiplier({ phase, result }: { phase: BetPhase; result: BetResult }) {
   const [display, setDisplay] = useState("1.00");
   const [popping, setPopping] = useState(false);
   const valueRef = useRef(1); // текущее показанное число (точка старта для count-up на результате)
+  const spinStartRef = useRef(0); // момент старта разгона — НЕ сбрасывается между фазами ожидания
   const rafRef = useRef(0);
 
-  const spinning = phase === "waiting" || phase === "delayed";
+  // Разгон идёт через ВСЕ фазы ожидания: на Base Sepolia долгая фаза — отправка UserOp (~9 c),
+  // ожидание колбэка короткое. Если разгонять только в waiting, игрок видит мёртвую «1.00» всё время.
+  const spinning =
+    phase === "submitting" || phase === "waiting" || phase === "delayed";
   const won = phase === "result" && result?.won === true;
   const lost = phase === "result" && result !== null && !result.won;
 
   useEffect(() => {
     cancelAnimationFrame(rafRef.current);
-    const reduced = prefersReducedMotion();
 
-    // Покой / отправка / ошибка: спокойная «1.00», без разгона.
-    if (phase === "idle" || phase === "submitting" || phase === "error") {
+    // Покой / ошибка: спокойная «1.00».
+    if (phase === "idle" || phase === "error") {
       valueRef.current = 1;
+      spinStartRef.current = 0;
       setDisplay("1.00");
       setPopping(false);
       return;
     }
 
-    // Ожидание колбэка Pyth: число ползёт вверх ускоряясь. reduced-motion → держим 1.00 статично.
+    // Ожидание (submitting→waiting→delayed): число монотонно ползёт вверх с ускорением.
+    // Старт фиксируем один раз и не сбрасываем при смене фазы — разгон непрерывен, без прыжка к 1.00.
+    // Само число разгоняется всегда; «трясущие» scale-эффекты (пульс/pop) гасит CSS при reduced-motion.
     if (spinning) {
       setPopping(false);
-      if (reduced) {
-        setDisplay("1.00");
-        return;
-      }
-      const capTime = Math.log(SPIN_CAP) / SPIN_RATE; // когда разгон достигнет потолка
-      const start = performance.now();
+      if (spinStartRef.current === 0) spinStartRef.current = performance.now();
+      const start = spinStartRef.current;
       const tick = (t: number) => {
         const elapsed = (t - start) / 1000;
-        let v = Math.exp(elapsed * SPIN_RATE); // 1.0 в нуле, дальше ускоряется
-        if (v > SPIN_CAP) v = SPIN_CAP + (elapsed - capTime) * 0.8; // мягкий дрейф, остаётся «живым»
+        let v = Math.exp(elapsed * SPIN_RATE); // 1.0 в нуле, дальше ускоряется (ease-in)
+        if (v > SPIN_CAP) v = SPIN_CAP + (elapsed - SPIN_CAP_TIME) * 0.8; // мягкий дрейф, остаётся «живым»
         valueRef.current = v;
         setDisplay(v.toFixed(2));
         rafRef.current = requestAnimationFrame(tick);
@@ -145,13 +140,8 @@ function BigMultiplier({ phase, result }: { phase: BetPhase; result: BetResult }
 
     // Раскрытие: быстрый count-up от показанного значения к РЕАЛЬНОМУ выпавшему + «pop».
     if (phase === "result" && result) {
+      spinStartRef.current = 0;
       const final = Number(result.resultMultiplier) / 1_000_000;
-      if (reduced) {
-        valueRef.current = final;
-        setDisplay(final.toFixed(2));
-        setPopping(false);
-        return;
-      }
       const from = valueRef.current;
       const start = performance.now();
       const duration = 500;
@@ -164,7 +154,7 @@ function BigMultiplier({ phase, result }: { phase: BetPhase; result: BetResult }
         } else {
           setDisplay(final.toFixed(2));
           valueRef.current = final;
-          setPopping(true); // короткий scale-bounce на фиксации
+          setPopping(true); // короткий scale-bounce на фиксации (CSS гасит при reduced-motion)
         }
       };
       rafRef.current = requestAnimationFrame(tick);
@@ -209,14 +199,7 @@ function StatusLine({
   onRefresh,
   onRefund,
 }: Omit<StageProps, "recent">) {
-  if (phase === "submitting") {
-    return (
-      <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Spinner /> Отправляем ставку…
-      </p>
-    );
-  }
-  if (phase === "waiting") {
+  if (phase === "submitting" || phase === "waiting") {
     return (
       <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
         <Spinner /> <span className="text-primary">✦</span> Крутим случайность Pyth…
