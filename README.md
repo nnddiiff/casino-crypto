@@ -1,220 +1,221 @@
-# Limbo — a provably-fair on-chain casino (Base Sepolia)
+# Limbo — доказуемо честное on-chain казино (Base Sepolia)
 
-A crypto casino built for the **Vibe-Code Challenge** (48h, 30–31 May 2026). Solidity smart
-contract + TypeScript/React frontend on the **Base Sepolia** testnet. The pitch in one line:
-**every edge the house has, and every random number it rolls, is verifiable on-chain — so a
-skeptic with a block explorer can confirm it isn't a scam.**
+Крипто-казино, собранное для **Vibe-Code Challenge** (48 часов, 30–31 мая 2026). Смарт-контракт на
+Solidity + фронтенд на TypeScript/React, тестнет **Base Sepolia**. Суть одной строкой:
+**каждое преимущество казино и каждое случайное число, которое оно выбрасывает, проверяемы on-chain —
+скептик с блок-эксплорером может убедиться, что это не скам.**
 
-- **Live:** https://limbo-casino-five.vercel.app
-- **Contract (verified):** [`0x8B8d552C384685afaC6C01E6524A3053eb308e54`](https://sepolia.basescan.org/address/0x8B8d552C384685afaC6C01E6524A3053eb308e54#code)
-- **Randomness:** [Pyth Entropy](https://sepolia.basescan.org/address/0x41c9e39574F40Ad34c79f1C99B66A45eFB830d4c) (async request → callback)
+- **Живой сайт:** https://limbo-casino-five.vercel.app
+- **Контракт (верифицирован):** [`0x8B8d552C384685afaC6C01E6524A3053eb308e54`](https://sepolia.basescan.org/address/0x8B8d552C384685afaC6C01E6524A3053eb308e54#code)
+- **Случайность:** [Pyth Entropy](https://sepolia.basescan.org/address/0x41c9e39574F40Ad34c79f1C99B66A45eFB830d4c) (асинхронно: запрос → колбэк)
 
 ---
 
-## The product lens (this is a casino, read like a funnel)
+## Продуктовая линза (это казино — читай как воронку)
 
-A casino frontend lives or dies on two things: **conversion** (Visit → Registration → First
-deposit → first bet) and **trust** (which drives retention). This build optimizes both, on purpose.
+Фронтенд казино живёт или умирает на двух вещах: **конверсия** (Visit → Registration → First
+deposit → первая ставка) и **доверие** (оно же двигает retention). Эта сборка осознанно
+оптимизирует и то, и другое.
 
-**Conversion — kill the friction.** The classic crypto onboarding (install a wallet, find a
-faucet, get gas, approve a token, deposit) loses almost everyone. Here:
+**Конверсия — убираем трение.** Классический крипто-онбординг (поставь кошелёк, найди кран, добудь
+газ, сделай approve токену, внеси депозит) теряет почти всех. Здесь:
 
-- **Login is email only.** One field. Behind it, thirdweb spins up a smart account (ERC-4337).
-- **Gas is sponsored** (account abstraction paymaster). The player never needs Base Sepolia ETH
-  for gas — which matters because that gas is genuinely hard to get on this testnet.
-- **The game is visible before login.** No "connect your wallet" wall. One button, **"Войти и
-  сыграть"** (*Log in and play*), runs the whole path — email login → free test funds from the
-  faucet → first bet — in a single gesture, all gasless.
-- **One balance.** The player sees a single number, **"Счёт казино"** (*Casino account*). The
-  plumbing underneath (smart-account ETH vs. the contract's `balances[]` ledger, the Pyth fee,
-  the deposit before each bet) is hidden — see [Account model](#account-model-one-balance) below.
+- **Вход только по email.** Одно поле. За ним thirdweb поднимает смарт-аккаунт (ERC-4337).
+- **Газ спонсируется** (paymaster account abstraction). Игроку никогда не нужен Base Sepolia ETH на
+  газ — а это важно, потому что на этом тестнете газ реально трудно достать.
+- **Игра видна до входа.** Никакой стены «подключи кошелёк». Одна кнопка **«Войти и сыграть»**
+  проходит весь путь — вход по email → бесплатные тестовые средства из крана → первая ставка — одним
+  жестом, целиком gasless.
+- **Один баланс.** Игрок видит одно число — **«Счёт казино»**. Вся машинерия под ним (ETH
+  смарт-аккаунта против реестра контракта `balances[]`, комиссия Pyth, депозит перед каждой ставкой)
+  спрятана — см. [Модель счёта](#модель-счёта-один-баланс) ниже.
 
-**Trust — prove it, don't claim it.** Big casinos call themselves "provably fair" but the proof
-is invisible. Here the house edge, the live hold, and **every individual roll** are recomputable
-from chain state. That's the [Self-audit dashboard](#self-audit--unit-economics) and the
-[Fairness verifier](#provable-fairness-the-hardest-part).
+**Доверие — доказываем, а не заявляем.** Крупные казино называют себя «provably fair», но
+доказательство невидимо. Здесь преимущество казино, фактический hold и **каждый отдельный розыгрыш**
+пересчитываются из состояния блокчейна. Это [Самоаудит](#самоаудит--юнит-экономика) и
+[Верификатор честности](#доказуемая-честность-самое-сложное).
 
-## Acceptance — what the brief requires, and how it's met
+## Соответствие ТЗ — что требует бриф и как это закрыто
 
-All four are verifiable on Basescan with no trust in me:
+Все четыре пункта проверяемы на Basescan, без необходимости верить мне на слово:
 
-| Requirement | How |
+| Требование | Как реализовано |
 | --- | --- |
-| **Connect a wallet** | Email login → gasless smart account (thirdweb in-app wallet + AA). |
-| **Deposit test tokens into the casino** | Faucet funds your account; the wallet→contract `deposit()` is executed automatically at bet time (one UserOp), so the on-chain deposit is real and visible — the player just sees their balance go up. |
-| **Play and win or lose tokens** | Limbo: pick a target multiplier `T`; Pyth Entropy returns a random roll; `roll ≥ T` wins `stake × T`. |
-| **Withdraw back to a wallet** | "Вывести на свой кошелёк" — paste any external address (MetaMask, an exchange); funds are sent there, gasless. |
+| **Подключить кошелёк** | Вход по email → gasless смарт-аккаунт (thirdweb in-app wallet + AA). |
+| **Внести тестовые токены в казино** | Кран пополняет твой счёт; перевод кошелёк→контракт `deposit()` выполняется автоматически в момент ставки (один UserOp), поэтому on-chain депозит реальный и виден — игрок просто видит, как растёт баланс. |
+| **Сыграть и выиграть или проиграть токены** | Limbo: задаёшь целевой множитель `T`; Pyth Entropy выдаёт случайный исход; `исход ≥ T` — выигрыш `ставка × T`. |
+| **Вывести обратно на кошелёк** | «Вывести на свой кошелёк» — вставляешь любой внешний адрес (MetaMask, биржа); средства уходят туда, gasless. |
 
-Testnet only, no real money. The house always has an edge (1%), and that edge is transparent.
+Только тестнет, без реальных денег. У казино всегда есть преимущество (1%), и это преимущество прозрачно.
 
-## Account model (one balance)
+## Модель счёта (один баланс)
 
-The single hardest *product* decision. A provably-fair casino with **asynchronous** randomness
-(Pyth requests a number, then a second transaction delivers it via callback) **requires** the
-player's funds to sit inside the contract between those two transactions — otherwise the callback
-can't pay out or refund. That's the dominant pattern across on-chain casinos
-(deposit → balance → bet → withdraw), and the brief itself asks for "deposit into the casino" and
-"withdraw back".
+Самое сложное *продуктовое* решение. Доказуемо честное казино с **асинхронной** случайностью (Pyth
+запрашивает число, затем второй транзакцией доставляет его колбэком) **требует**, чтобы средства
+игрока лежали внутри контракта между этими двумя транзакциями — иначе колбэк не сможет ни выплатить,
+ни вернуть. Это доминирующий паттерн on-chain казино (deposit → balance → bet → withdraw), и сам
+бриф просит «внести в казино» и «вывести обратно».
 
-So on-chain there are two pots: the smart account's native ETH (**W**) and the contract ledger
-`balances[player]` (**G**). Showing the player both — plus an external address — was the original
-UX failure ("too many accounts"). The fix, **entirely on the frontend, no contract redeploy**:
+Поэтому on-chain существуют два пула: нативный ETH смарт-аккаунта (**W**) и реестр контракта
+`balances[player]` (**G**). Показывать игроку оба — плюс ещё внешний адрес — было исходным провалом
+UX («слишком много счетов»). Решение, **целиком на фронтенде, без редеплоя контракта**:
 
-- **Display one number, "Счёт казино" = G + W.** That's what you bet with and what you withdraw.
-- **Just-in-time funding.** On a bet, if G is short, the frontend silently bundles
-  `deposit(stake − G)` + `placeBet` into **one gasless UserOp** (atomic, one confirmation). The
-  Pyth fee is paid from W. Invariant guaranteed before `placeBet` runs: `G' ≥ stake`, `W' ≥ fee`.
-- **Withdrawal = one outward path.** "Withdraw to your wallet" pastes an external address; if W is
-  short it bundles `withdraw(amount − W)` + the native transfer. No third visible "account".
+- **Показываем одно число, «Счёт казино» = G + W.** Им и играешь, и выводишь.
+- **Пополнение точно в момент нужды.** На ставке, если G не хватает, фронтенд молча упаковывает
+  `deposit(stake − G)` + `placeBet` в **один gasless UserOp** (атомарно, одно подтверждение).
+  Комиссия Pyth платится из W. Инвариант, гарантированный до запуска `placeBet`: `G' ≥ stake`,
+  `W' ≥ fee`.
+- **Вывод = единственный путь наружу.** «Вывести на свой кошелёк» принимает внешний адрес; если W не
+  хватает, упаковывает `withdraw(amount − W)` + нативный перевод. Никакого третьего видимого «счёта».
 
-The word "wallet" is never applied to the hidden smart account; "smart account / AA / paymaster"
-never appear in the UI. Login is email-only on purpose: thirdweb's in-app wallet derives a
-**different address per auth method**, so offering Google *and* email would silently create two
-different accounts with two balances.
+Слово «кошелёк» нигде не применяется к скрытому смарт-аккаунту; «smart account / AA / paymaster»
+не появляются в интерфейсе. Вход только по email намеренно: in-app wallet от thirdweb выводит
+**разный адрес на каждый способ входа**, поэтому если дать Google *и* email, это молча создаст два
+разных счёта с двумя балансами.
 
-## Self-audit & unit economics
+## Самоаудит & юнит-экономика
 
-The differentiator. A dashboard reads the contract live and speaks the language of casino
-economics:
+Дифференциатор. Дашборд читает контракт вживую и говорит на языке экономики казино:
 
-- **House edge (theory): 1.00%** — `RTP = 99%`, and the edge is baked into the distribution as
-  `P(win) = RTP / T`. There is no hidden edge; this is the *only* one.
-- **Actual hold** — `|wagered − paid| / wagered` over all settled bets, converging to 1% with
-  volume. On a small sample players can be ahead; the dashboard shows that honestly.
-- **Bank, reserve, volume, payouts, bet count, win rate** — all straight from chain state.
+- **Преимущество казино (теория): 1.00%** — `RTP = 99%`, и преимущество зашито в распределение как
+  `P(выигрыш) = RTP / T`. Скрытого преимущества нет; это единственное.
+- **Фактический hold** — `|поставлено − выплачено| / поставлено` по всем рассчитанным ставкам,
+  сходится к 1% с объёмом. На малой выборке игроки могут быть в плюсе; дашборд показывает это честно,
+  а не выдаёт дисперсию за дыру в модели.
+- **Банк, резерв, оборот, выплаты, число ставок, win rate** — всё прямо из состояния блокчейна.
 
-Plus a **live bet feed** (every `BetSettled` event, each row links to Basescan) — radical
-transparency that a normal casino can't offer.
+Плюс **живая лента ставок** (каждое событие `BetSettled`, каждая строка ведёт на Basescan) —
+радикальная прозрачность, которую обычное казино предложить не может.
 
-## Provable fairness (the hardest part)
+## Доказуемая честность (самое сложное)
 
-**The hardest unknown was Pyth Entropy's asynchronous model.** Unlike a synchronous RNG, a bet is
-*two* transactions: `placeBet` requests randomness; seconds later Pyth calls `entropyCallback`
-with the number and the contract settles. Everything had to be designed around it:
+**Самым сложным неизвестным была асинхронная модель Pyth Entropy.** В отличие от синхронного RNG,
+ставка — это *две* транзакции: `placeBet` запрашивает случайность; через секунды Pyth вызывает
+`entropyCallback` с числом, и контракт рассчитывает исход. Всё пришлось проектировать вокруг этого:
 
-- Funds are **locked** to reserve the full potential payout at request time (the bank can never be
-  drained by an in-flight bet).
-- The callback does **no external transfers** (pull-over-push) so it's cheap and can't revert — a
-  reverting callback would strand the bet. An explicit `CALLBACK_GAS_LIMIT` (200k; measured usage
-  73k) guarantees headroom, and `refundStuckBet` returns a bet if a callback never arrives.
+- Средства **резервируются** (`locked`) под полную потенциальную выплату в момент запроса (банк
+  нельзя разорить ставкой, которая ещё в полёте).
+- Колбэк **не делает внешних переводов** (pull-over-push), поэтому он дёшев и не может заревертить —
+  а реверт колбэка заморозил бы ставку. Явный `CALLBACK_GAS_LIMIT` (200k; замеренный расход 73k)
+  гарантирует запас, а `refundStuckBet` возвращает ставку, если колбэк так и не пришёл.
 
-**The verifier.** The contract records the outcome but doesn't emit the *raw* random number — so
-the fairness panel closes the loop independently: it pulls `randomNumber` from **Pyth's own**
-`Revealed` event by sequence number, recomputes the multiplier with the contract's public
-`previewMultiplier`, and shows it matches the recorded `BetSettled`. The random number comes from
-Pyth, not from the casino; the recompute is the casino's own on-chain function; a match proves the
-outcome wasn't forged. Verified end-to-end (e.g. seq 56001: `0xf710d6…` → 25.15× recomputed ==
-25.15× recorded).
+**Верификатор.** Контракт записывает исход, но не эмитит *сырое* случайное число — поэтому панель
+честности замыкает доказательство независимо: достаёт `randomNumber` из **собственного** события
+Pyth `Revealed` по sequence number, пересчитывает множитель публичной функцией контракта
+`previewMultiplier` и показывает, что он совпадает с записанным `BetSettled`. Случайное число пришло
+от Pyth, а не от казино; пересчёт — публичная функция самого контракта; совпадение доказывает, что
+исход не подделан. Проверено end-to-end (например, seq 56001: `0xf710d6…` → пересчитано 25.15× ==
+записано 25.15×).
 
-## Stack & why
+## Стек и почему так
 
-- **Network — Base Sepolia (L2, chainId 84532).** The brief says "Ethereum testnet
-  (Sepolia/Holesky)". I chose Base because it's still Ethereum (an L2 settling to it), has Pyth
-  Entropy deployed, the best AA/paymaster support for a gasless onboarding, and fast/cheap blocks —
-  while Sepolia/Holesky L1 gas is even harder to source. The whole gasless funnel depends on this.
-- **Contract — Solidity + Foundry.** Solidity is mandatory for an EVM contract and has the richest
-  training data, so AI codegen is most reliable (fewer iterations, fewer tokens).
-- **Frontend — TypeScript + Next.js 16 + thirdweb v5 + Tailwind/shadcn.** TS gives type safety at
-  the contract boundary (ABI, addresses, `bigint`). thirdweb handles the in-app wallet, account
-  abstraction, and gasless sponsoring out of the box on testnets.
-- **Money — native test ETH + an in-contract faucet.** No token deploy, no `approve`, simplest
-  possible deposit/withdraw loop.
-- **Randomness — Pyth Entropy.** Verifiable on-chain, cheaper/faster than Chainlink VRF on Base,
-  with a Foundry example to follow.
+- **Сеть — Base Sepolia (L2, chainId 84532).** Бриф говорит «Ethereum testnet (Sepolia/Holesky)».
+  Я выбрал Base, потому что это всё ещё Ethereum (L2, расчёты идут в него), там задеплоен Pyth
+  Entropy, лучшая поддержка AA/paymaster для gasless-онбординга и быстрые/дешёвые блоки — при том
+  что газ на L1 Sepolia/Holesky достать ещё труднее. Вся gasless-воронка держится на этом.
+- **Контракт — Solidity + Foundry.** Solidity обязателен для EVM-контракта и имеет богатейшие данные
+  обучения, поэтому AI-кодогенерация надёжнее всего (меньше итераций, меньше токенов).
+- **Фронтенд — TypeScript + Next.js 16 + thirdweb v5 + Tailwind/shadcn.** TS даёт типобезопасность на
+  границе с контрактом (ABI, адреса, `bigint`). thirdweb из коробки закрывает in-app wallet, account
+  abstraction и gasless-спонсирование на тестнетах.
+- **Деньги — нативный тестовый ETH + кран в контракте.** Без деплоя токена, без `approve`, простейшая
+  петля deposit/withdraw.
+- **Случайность — Pyth Entropy.** Проверяема on-chain, дешевле/быстрее Chainlink VRF на Base, есть
+  пример под Foundry.
 
-## What works / what doesn't
+## Что работает / что нет
 
-**Works (verified on-chain):**
+**Работает (проверено on-chain):**
 
-- Full money loop: faucet → deposit → bet → win/lose → withdraw → send to an external address,
-  **all gasless** (a player smart account with zero prior gas completed the entire path; 0
-  gas-paying transactions on it — the paymaster covered everything).
-- Async Pyth bet end-to-end on the real network; accounting invariant
-  `balance == bank + faucet + locked + Σ balances` holds to the wei.
-- Self-audit dashboard, live bet feed, and fairness verifier all read live chain state and work
-  without a wallet connected.
-- The revised UX (this submission) type-checks clean, renders clean (0 console errors), and the
-  gasless "log in → auto-faucet → batched deposit+bet" cascade is wired.
-- The async bet UX is honest about Pyth's two-transaction model: the multiplier holds calmly at
-  1.00 while waiting (no fake spinning number), a **retry** path if the submit fails before it
-  lands (no phantom result, funds untouched), a **"taking longer than usual"** state that links the
-  in-flight bet on-chain by sequence number, and a **`refundStuckBet`** fallback (the contract's own
-  1-hour safety net) if a callback never arrives — surfaced in the UI, not just the contract.
+- Полная денежная петля: кран → депозит → ставка → выигрыш/проигрыш → вывод → отправка на внешний
+  адрес, **всё gasless** (смарт-аккаунт игрока с нулевым газом прошёл весь путь; 0 газ-платящих
+  транзакций на нём — всё покрыл paymaster).
+- Асинхронная ставка через Pyth end-to-end на реальной сети; инвариант учёта
+  `balance == bank + faucet + locked + Σ balances` сходится до wei.
+- Дашборд самоаудита, живая лента ставок и верификатор честности читают состояние блокчейна вживую и
+  работают без подключённого кошелька.
+- Сборка проходит type-check начисто, рендерится чисто (0 ошибок в консоли), gasless-каскад
+  «вход → авто-кран → батч депозит+ставка» подключён.
+- UX асинхронной ставки честен к двухтранзакционной модели Pyth: понятное состояние ожидания (без
+  фейкового результата), путь **повтора** при сбое отправки (без фантомного исхода, средства не
+  тронуты), состояние **«идёт дольше обычного»** со ссылкой на ставку on-chain по sequence number и
+  фолбэк **`refundStuckBet`** (часовая страховка самого контракта), выведенный в интерфейс, а не
+  спрятанный в контракте.
 
-**Not done / honest gaps:**
+**Не сделано / честные пробелы:**
 
-- The revised UX's **live email-login cascade** is the one path I can't automate headlessly (email
-  OTP) — it's verified by rendering and types, and the underlying transactions are the same ones
-  proven on-chain, but the end-to-end click-through on the new build is a manual pass.
-- No redeploy, so `BetSettled` still doesn't emit the raw random number — the verifier bridges that
-  via Pyth's event (see below).
+- **Живой каскад входа по email** — единственный путь, который нельзя автоматизировать headless
+  (email-OTP). Он проверен рендером и типами, а транзакции под ним — те же, что доказаны on-chain,
+  но сквозной клик по новой сборке — ручной проход.
+- Без редеплоя `BetSettled` по-прежнему не эмитит сырое случайное число — верификатор мостит это
+  через событие Pyth (см. выше).
 
-## Accepted risks (from the final contract audit)
+## Принятые риски (из финального аудита контракта)
 
-The contract passed an adversarial audit (multiple independent read-only Opus reviewers, two
-rounds): no critical/high findings, funds provably safe, edge honest (RTP 98.94–99.00%, never
-above 99%). Deliberately accepted, low-severity, documented rather than redeployed for:
+Контракт прошёл adversarial-аудит (несколько независимых read-only Opus-ревьюеров, два раунда): нет
+critical/high находок, средства доказуемо в безопасности, преимущество честное (RTP 98.94–99.00%,
+никогда выше 99%). Осознанно приняты, низкой важности, задокументированы вместо редеплоя:
 
-- **Pyth trust model.** `requestV2()` is called without a `userRandomNumber`, so fairness rests on
-  Pyth's validator + provider not colluding (the standard Entropy trust assumption). A
-  user-contributed entropy variant would harden it; out of scope for the weekend.
-- **Force-fed ETH is locked by design.** ETH sent directly to the contract (not via `deposit`)
-  isn't withdrawable — it only ever makes the bank invariant a `>=`, never unsafe.
-- **Hold stat and refunds.** `refundStuckBet` (the stuck-callback safety net) isn't subtracted from
-  `totalWagered`, so the displayed hold can be slightly skewed by refunds.
+- **Trust-модель Pyth.** `requestV2()` вызывается без `userRandomNumber`, поэтому честность опирается
+  на то, что валидатор + провайдер Pyth не вступят в сговор (стандартное допущение доверия Entropy).
+  Вариант с пользовательской энтропией усилил бы это; вне рамок выходных.
+- **Force-fed ETH заперт by design.** ETH, отправленный напрямую в контракт (не через `deposit`), не
+  выводится — он лишь делает инвариант банка `>=`, никогда не небезопасным.
+- **Статистика hold и рефанды.** `refundStuckBet` (страховка зависшего колбэка) не вычитается из
+  `totalWagered`, поэтому показанный hold может слегка искажаться рефандами.
 
-## Run locally
+## Запуск локально
 
 ```bash
-# Contract (Foundry)
+# Контракт (Foundry)
 cd contracts
-forge build && forge test            # 32 passing
+forge build && forge test            # 32 проходят
 
-# Frontend (Next.js)
+# Фронтенд (Next.js)
 cd web
 npm install
 npx next dev -p 3007                  # http://localhost:3007
 ```
 
-`web/.env.local` needs `NEXT_PUBLIC_THIRDWEB_CLIENT_ID`, `NEXT_PUBLIC_CASINO_ADDRESS`,
-`NEXT_PUBLIC_CHAIN_ID=84532` (see `web/.env.local` / `contracts/.env.example`). The production
-build is compiled by Vercel on push to `main`.
+`web/.env.local` требует `NEXT_PUBLIC_THIRDWEB_CLIENT_ID`, `NEXT_PUBLIC_CASINO_ADDRESS`,
+`NEXT_PUBLIC_CHAIN_ID=84532` (см. `web/.env.local` / `contracts/.env.example`). Прод-сборку собирает
+Vercel на push в `main`.
 
-## What I'd build next
+## Что бы строил дальше
 
-- **Redeploy to emit `randomNumber` in `BetSettled`** — makes the fairness proof self-contained
-  (no second Pyth event lookup).
-- **Guest play + later email linking** — bet first, register on cash-out, to cut friction further.
-- **A second game (Dice)** sharing the same bank/fairness rails.
-- **User-contributed entropy** to remove the Pyth-collusion trust assumption.
-- **An honest AI touch that moves a metric** (e.g. responsible-gaming nudge), not "AI for AI's sake".
+- **Редеплой, чтобы эмитить `randomNumber` в `BetSettled`** — делает доказательство честности
+  самодостаточным (без второго запроса к событию Pyth).
+- **Гостевая игра + привязка email позже** — сначала ставка, регистрация на выводе, чтобы ещё срезать
+  трение.
+- **Вторая игра (Dice)** на тех же рельсах банка/честности.
+- **Пользовательская энтропия** — убрать допущение о сговоре в Pyth.
+- **Честный AI-штрих, двигающий метрику** (например, responsible-gaming нудж), а не «AI ради AI».
 
 ---
 
-## How I used AI tools
+## Как я использовал AI-инструменты
 
-I treated Claude Code as an engineering workflow, not autocomplete: stress-test the plan before
-writing code, verify every load-bearing decision against current docs, keep a clean commit history,
-and adversarially review the money-handling contract before deploy.
+Я относился к Claude Code как к инженерному процессу, а не автодополнению: стресс-тест плана до
+написания кода, проверка каждого несущего решения по актуальной документации, чистая история
+коммитов и adversarial-ревью контракта, работающего с деньгами, перед деплоем.
 
-- **`/grill-me`** — adversarially stress-tested the whole plan (game, chain, money model,
-  randomness, toolchain) *before a single line of code*, and again before the UX revision. Killed
-  weak choices early — including the "too many accounts" UX, which a hands-on playthrough exposed
-  as not release-ready.
-- **`/q`** — read-only verification subagents (own context, no write access). Each load-bearing
-  decision was independently checked against current docs before being locked: the switch to Base
-  Sepolia, that Pyth Entropy is live there, native-ETH-with-faucet over a custom token, that
-  thirdweb derives a different address per auth method (→ email-only login).
-- **`/git-commit`** — atomic, Conventional-Commits, domain-separated commits with no
-  AI-attribution noise — the log you're reading.
-- **Adversarial contract audit** — before deploy and before submission, Opus security-auditor
-  subagents (read-only) audited the Solidity for reentrancy, fund-drain, bank/faucet isolation,
-  house-edge math, and the async callback. Two rounds; one found a real callback-gas risk that I
-  fixed before deploy.
+- **`/grill-me`** — adversarial стресс-тест всего плана (игра, сеть, модель денег, случайность,
+  тулчейн) *до единой строчки кода*, и ещё раз перед ревизией UX. Отсёк слабые решения рано — включая
+  UX «слишком много счетов», который ручной прогон показал как не готовый к выпуску.
+- **`/q`** — read-only субагенты для проверки (свой контекст, без права записи). Каждое несущее
+  решение независимо сверялось с актуальной документацией до фиксации: переход на Base Sepolia, что
+  Pyth Entropy там живой, нативный ETH с краном вместо своего токена, что thirdweb выводит разный
+  адрес на способ входа (→ вход только по email).
+- **`/git-commit`** — атомарные коммиты по Conventional Commits, разделённые по доменам, без
+  AI-шума в сообщениях — тот лог, что ты читаешь.
+- **Adversarial-аудит контракта** — до деплоя и до сдачи Opus-субагенты (security-auditor, read-only)
+  проверяли Solidity на reentrancy, слив средств, изоляцию банка/крана, математику преимущества и
+  асинхронный колбэк. Два раунда; один нашёл реальный риск по газу колбэка, который я починил до
+  деплоя.
 
-What I deliberately did **not** do: heavyweight multi-agent orchestration or my `/research`
-due-diligence skill. For a solo, tightly-coupled weekend build those cost several× the tokens for
-no benefit — single agent plus targeted read-only subagents is the honest, economical choice. Where
-AI genuinely struggled: Next.js 16 broke enough APIs that training data misled it (I pinned to the
-in-repo docs), and headless tooling can't drive an email-OTP login, so the final live loop is a
-human pass.
+Что я сознательно **не** делал: тяжёлую multi-agent оркестрацию и свой `/research`-навык
+due-diligence. Для сольной, плотно связанной сборки за выходные это стоит в несколько раз больше
+токенов без выгоды — один агент плюс точечные read-only субагенты — честный и экономный выбор. Где AI
+реально буксовал: Next.js 16 сломал достаточно API, чтобы данные обучения вводили в заблуждение (я
+прибил версию к документации из репозитория), а headless-тулинг не может пройти вход по email-OTP,
+поэтому финальная живая петля — ручной проход.

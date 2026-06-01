@@ -11,6 +11,9 @@ screen/
 vibe-code-challenge.pdf
 notion-challenge.md
 
+# --- Внутренний ревью/хендофф (процессный артефакт, не часть продукта) ---
+REVIEW-HANDOFF.md
+
 # --- Секреты ---
 .env
 .env.*
